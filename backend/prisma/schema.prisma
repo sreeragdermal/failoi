@@ -1,0 +1,226 @@
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+enum Role {
+  GUEST
+  REGISTERED
+  PREMIUM
+  ADMIN
+  SUPER_ADMIN
+}
+
+enum Visibility {
+  PUBLIC
+  PRIVATE
+  PASSWORD
+}
+
+enum JobStatus {
+  PENDING
+  PROCESSING
+  COMPLETED
+  FAILED
+}
+
+model User {
+  id                  String     @id @default(uuid())
+  email               String     @unique
+  passwordHash        String
+  name                String?
+  role                Role       @default(REGISTERED)
+  createdAt           DateTime   @default(now())
+  updatedAt           DateTime   @updatedAt
+  flipbooks           Flipbook[]
+  sessions            Session[]
+  
+  // Emergency Access & Security
+  failedLoginAttempts Int        @default(0)
+  lockedUntil         DateTime?
+  isSuspended         Boolean    @default(false)
+  emailVerified       Boolean    @default(false)
+  twoFactorEnabled    Boolean    @default(false)
+  twoFactorSecret     String?
+  forcePasswordReset  Boolean    @default(false)
+}
+
+model Session {
+  id           String   @id @default(uuid())
+  userId       String
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  refreshToken String   @unique
+  expiresAt    DateTime
+  revoked      Boolean  @default(false)
+  createdAt    DateTime @default(now())
+  
+  // Telemetry fields
+  device       String?
+  browser      String?
+  os           String?
+  country      String?
+  ipAddress    String?
+  lastActivity DateTime @default(now())
+}
+
+model Flipbook {
+  id                String       @id @default(uuid())
+  userId            String
+  user              User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  title             String
+  description       String?
+  slug              String       @unique
+  originalPdfPath   String
+  thumbnailPath     String?
+  pageCount         Int          @default(0)
+  fileSize          Int
+  visibility        Visibility   @default(PRIVATE)
+  passwordHash      String?
+  expirationDate    DateTime?
+  disableDownload   Boolean      @default(false)
+  disablePrint      Boolean      @default(false)
+  disableCopy       Boolean      @default(false)
+  requireEmail      Boolean      @default(false)
+  domainRestriction String?
+  status            JobStatus    @default(PENDING)
+  error             String?
+  createdAt         DateTime     @default(now())
+  updatedAt         DateTime     @updatedAt
+  pages             PageAsset[]
+  analytics         Analytics[]
+  bookmarks         Bookmark[]
+  shareLinks        ShareLink[]
+}
+
+model PageAsset {
+  id         String   @id @default(uuid())
+  flipbookId String
+  flipbook   Flipbook @relation(fields: [flipbookId], references: [id], onDelete: Cascade)
+  pageNumber Int
+  imagePath  String
+  createdAt  DateTime @default(now())
+
+  @@unique([flipbookId, pageNumber])
+}
+
+model Analytics {
+  id            String   @id @default(uuid())
+  flipbookId    String
+  flipbook      Flipbook @relation(fields: [flipbookId], references: [id], onDelete: Cascade)
+  visitorId     String
+  country       String?
+  city          String?
+  device        String?
+  browser       String?
+  os            String?
+  referrer      String?
+  duration      Int      @default(0)
+  pagesRead     Int[]
+  downloaded    Boolean  @default(false)
+  shared        Boolean  @default(false)
+  sharePlatform String?
+  embedded      Boolean  @default(false)
+  createdAt     DateTime @default(now())
+}
+
+model Bookmark {
+  id         String   @id @default(uuid())
+  userId     String?
+  flipbookId String
+  flipbook   Flipbook @relation(fields: [flipbookId], references: [id], onDelete: Cascade)
+  pageNumber Int
+  title      String
+  createdAt  DateTime @default(now())
+}
+
+model ShareLink {
+  id         String   @id @default(uuid())
+  flipbookId String
+  flipbook   Flipbook @relation(fields: [flipbookId], references: [id], onDelete: Cascade)
+  platform   String
+  clicks     Int      @default(0)
+  createdAt  DateTime @default(now())
+}
+
+model ImpersonationLog {
+  id         String    @id @default(uuid())
+  adminId    String
+  targetId   String
+  startTime  DateTime  @default(now())
+  endTime    DateTime?
+  ipAddress  String?
+  browser    String?
+  reason     String?
+}
+
+model AuditLog {
+  id             String   @id @default(uuid())
+  userId         String?
+  userEmail      String?
+  action         String
+  module         String
+  timestamp      DateTime @default(now())
+  ipAddress      String?
+  browser        String?
+  os             String?
+  targetResource String?
+  beforeValue    String?  @db.Text
+  afterValue     String?  @db.Text
+}
+
+model SystemLog {
+  id        String   @id @default(uuid())
+  type      String   // AUTH, UPLOAD, ANALYTICS, ADMIN, WORKER, EMAIL, API, DATABASE
+  level     String   // INFO, WARN, ERROR
+  message   String
+  details   String?  @db.Text
+  createdAt DateTime @default(now())
+}
+
+model ApiKey {
+  id             String    @id @default(uuid())
+  name           String
+  keyHash        String    @unique
+  permissions    String[]  // e.g. ["READ_FLIPBOOKS", "WRITE_FLIPBOOKS"]
+  expiresAt      DateTime?
+  lastUsedAt     DateTime?
+  usageCount     Int       @default(0)
+  isActive       Boolean   @default(true)
+  createdAt      DateTime  @default(now())
+}
+
+model SecurityAlert {
+  id          String   @id @default(uuid())
+  type        String   // FAILED_LOGIN, SUSPICIOUS_ACTIVITY, RATE_LIMIT, EXPIRED_SESSION, SECURITY_ALERT
+  description String
+  severity    String   // LOW, MEDIUM, HIGH, CRITICAL
+  ipAddress   String?
+  browser     String?
+  os          String?
+  createdAt   DateTime @default(now())
+}
+
+model IpRule {
+  id        String   @id @default(uuid())
+  ipAddress String   @unique
+  type      String   // WHITELIST, BLACKLIST
+  notes     String?
+  createdAt DateTime @default(now())
+}
+
+model AppSetting {
+  key   String @id
+  value String @db.Text
+}
+
+model Notification {
+  id        String   @id @default(uuid())
+  type      String   // STORAGE_80, DB_ERROR, WORKER_CRASH, UPLOAD_FAIL, SERVER_OFFLINE, HIGH_CPU, HIGH_MEM, SUSPICIOUS_LOGIN
+  message   String
+  read      Boolean  @default(false)
+  createdAt DateTime @default(now())
+}
