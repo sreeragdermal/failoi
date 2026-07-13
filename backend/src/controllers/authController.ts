@@ -863,12 +863,18 @@ export const googleCallback = async (req: Request, res: Response) => {
     setCsrfCookie(res);
 
     await logSystem('AUTH', 'INFO', `User logged in via Google OAuth: ${email}`);
-    await logAudit({
-      req: { ...req, user } as any,
-      action: 'USER_LOGIN',
-      module: 'AUTH',
-      targetResource: user.id
-    });
+    // Safely attempt audit logging (non-fatal for authentication flow)
+    try {
+      (req as any).user = user;
+      await logAudit({
+        req: req as any,
+        action: 'USER_LOGIN',
+        module: 'AUTH',
+        targetResource: user.id
+      });
+    } catch (auditErr) {
+      console.error('[Google OAuth] Non-fatal audit log failure:', auditErr);
+    }
 
     // 5. Redirect user back to frontend, passing the local API access token
     return res.redirect(`${frontendUrl}/login?token=${accessToken}`);
