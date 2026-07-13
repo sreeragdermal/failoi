@@ -26,7 +26,7 @@ const __dirname = path.dirname(__filename);
 dotenv.config();
 
 const app = express();
-const PORT = process.env.PORT || 5000;
+const PORT = process.env.PORT || 10000;
 const FRONTEND_URL = process.env.FRONTEND_URL || 'http://localhost:5173';
 
 // Middlewares
@@ -79,7 +79,7 @@ startWorker();
 
 // Initialize system database settings & Start Server
 initializeSettings().then(() => {
-  app.listen(PORT, () => {
+  app.listen(Number(PORT), '0.0.0.0', () => {
     console.log(`[Server] Running on port ${PORT} in ${process.env.NODE_ENV || 'development'} mode`);
   });
 });
