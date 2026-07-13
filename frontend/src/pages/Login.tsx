@@ -1,11 +1,11 @@
 import React, { useState, useEffect } from 'react';
 import { Link, useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../hooks/useAuth.js';
-import { setAccessToken, BASE_URL } from '../services/api.js';
+import { BASE_URL } from '../services/api.js';
 import { Lock, Mail, ArrowRight, Eye, EyeOff } from 'lucide-react';
 
 export const Login: React.FC = () => {
-  const { login, verify2FALogin, checkAuth } = useAuth();
+  const { login, verify2FALogin, setOAuthSession } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
   const [email, setEmail] = useState('');
@@ -29,18 +29,24 @@ export const Login: React.FC = () => {
     const oauthError = params.get('error');
 
     if (token) {
-      setAccessToken(token);
-      checkAuth()
+      console.log('[Google OAuth] Frontend received authentication token from callback redirect');
+      setOAuthSession(token)
         .then(() => {
+          // Remove OAuth token query parameters from the address bar to prevent reprocessing on refresh
+          window.history.replaceState({}, document.title, window.location.pathname);
+          console.log('[Google OAuth] Session context restored. Redirecting authenticated user to:', from);
           navigate(from, { replace: true });
         })
         .catch((err: any) => {
           setError(err.message || 'Failed to authenticate Google session');
         });
     } else if (oauthError) {
+      console.error('[Google OAuth] Frontend received OAuth error:', oauthError);
       setError(`Google login failed: ${oauthError.replace(/_/g, ' ')}`);
+      // Clear URL params to allow fresh logins
+      window.history.replaceState({}, document.title, window.location.pathname);
     }
-  }, [location, checkAuth, navigate, from]);
+  }, [location, setOAuthSession, navigate, from]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();

@@ -18,6 +18,7 @@ interface AuthContextType {
   checkAuth: () => Promise<void>;
   returnFromImpersonation: () => Promise<void>;
   verify2FALogin: (tempToken: string, code: string) => Promise<void>;
+  setOAuthSession: (token: string) => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -137,8 +138,33 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   };
 
+  const setOAuthSession = async (token: string) => {
+    setLoading(true);
+    try {
+      setAccessToken(token);
+      // Decode JWT token payload client-side to set initial user info
+      const base64Url = token.split('.')[1];
+      const base64 = base64Url.replace(/-/g, '+').replace(/_/g, '/');
+      const payload = JSON.parse(atob(base64));
+      const userData = {
+        id: payload.id,
+        email: payload.email,
+        role: payload.role
+      };
+      setUser(userData);
+      console.log('[AuthContext] Google OAuth session set successfully for:', userData.email);
+    } catch (err) {
+      console.error('[AuthContext] Failed to parse OAuth token:', err);
+      setUser(null);
+      setAccessToken(null);
+      throw err;
+    } finally {
+      setLoading(false);
+    }
+  };
+
   return (
-    <AuthContext.Provider value={{ user, loading, login, register, logout, checkAuth, returnFromImpersonation, verify2FALogin }}>
+    <AuthContext.Provider value={{ user, loading, login, register, logout, checkAuth, returnFromImpersonation, verify2FALogin, setOAuthSession }}>
       {children}
     </AuthContext.Provider>
   );

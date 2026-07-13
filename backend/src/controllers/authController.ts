@@ -54,8 +54,8 @@ const getSessionTelemetry = (req: Request) => {
 const setCsrfCookie = (res: Response): string => {
   const token = crypto.randomBytes(32).toString('hex');
   res.cookie('csrfToken', token, {
-    secure: process.env.NODE_ENV === 'production',
-    sameSite: 'lax',
+    secure: true,
+    sameSite: 'none',
     maxAge: 7 * 24 * 60 * 60 * 1000,
   });
   return token;
@@ -237,8 +237,8 @@ export const login = async (req: Request, res: Response) => {
     // Set refresh token in HttpOnly Cookie
     res.cookie('refreshToken', refreshToken, {
       httpOnly: true,
-      secure: process.env.NODE_ENV === 'production',
-      sameSite: 'lax',
+      secure: true,
+      sameSite: 'none',
       maxAge: 7 * 24 * 60 * 60 * 1000,
     });
 
@@ -318,8 +318,8 @@ export const verify2FALogin = async (req: Request, res: Response) => {
 
     res.cookie('refreshToken', refreshToken, {
       httpOnly: true,
-      secure: process.env.NODE_ENV === 'production',
-      sameSite: 'lax',
+      secure: true,
+      sameSite: 'none',
       maxAge: 7 * 24 * 60 * 60 * 1000,
     });
 
@@ -422,12 +422,12 @@ export const logout = async (req: Request, res: Response) => {
 
     res.clearCookie('refreshToken', {
       httpOnly: true,
-      secure: process.env.NODE_ENV === 'production',
-      sameSite: 'lax',
+      secure: true,
+      sameSite: 'none',
     });
     res.clearCookie('csrfToken', {
-      secure: process.env.NODE_ENV === 'production',
-      sameSite: 'lax',
+      secure: true,
+      sameSite: 'none',
     });
 
     return res.status(200).json({ message: 'Logged out successfully' });
@@ -854,8 +854,8 @@ export const googleCallback = async (req: Request, res: Response) => {
     // Set refresh token in HttpOnly cookie
     res.cookie('refreshToken', refreshToken, {
       httpOnly: true,
-      secure: process.env.NODE_ENV === 'production',
-      sameSite: 'lax',
+      secure: true,
+      sameSite: 'none',
       maxAge: 7 * 24 * 60 * 60 * 1000,
     });
 

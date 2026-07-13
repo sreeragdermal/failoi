@@ -367,24 +367,24 @@ export const impersonateUser = async (req: AuthRequest, res: Response) => {
     // Store admin refresh token inside an HttpOnly cookie
     res.cookie('adminRefreshToken', currentAdminRefreshToken, {
       httpOnly: true,
-      secure: process.env.NODE_ENV === 'production',
-      sameSite: 'lax',
+      secure: true,
+      sameSite: 'none',
       maxAge: 7 * 24 * 60 * 60 * 1000
     });
 
     // Overwrite the normal refresh token cookie with target user token
     res.cookie('refreshToken', targetRefreshToken, {
       httpOnly: true,
-      secure: process.env.NODE_ENV === 'production',
-      sameSite: 'lax',
+      secure: true,
+      sameSite: 'none',
       maxAge: 7 * 24 * 60 * 60 * 1000
     });
 
     // Generate CSRF cookie
     const token = crypto.randomBytes(32).toString('hex');
     res.cookie('csrfToken', token, {
-      secure: process.env.NODE_ENV === 'production',
-      sameSite: 'lax',
+      secure: true,
+      sameSite: 'none',
       maxAge: 7 * 24 * 60 * 60 * 1000
     });
 
@@ -462,21 +462,21 @@ export const returnFromImpersonation = async (req: AuthRequest, res: Response) =
     // 4. Restore cookies
     res.cookie('refreshToken', adminRefreshToken, {
       httpOnly: true,
-      secure: process.env.NODE_ENV === 'production',
-      sameSite: 'lax',
+      secure: true,
+      sameSite: 'none',
       maxAge: 7 * 24 * 60 * 60 * 1000
     });
 
     res.clearCookie('adminRefreshToken', {
       httpOnly: true,
-      secure: process.env.NODE_ENV === 'production',
-      sameSite: 'lax'
+      secure: true,
+      sameSite: 'none'
     });
 
     const token = crypto.randomBytes(32).toString('hex');
     res.cookie('csrfToken', token, {
-      secure: process.env.NODE_ENV === 'production',
-      sameSite: 'lax',
+      secure: true,
+      sameSite: 'none',
       maxAge: 7 * 24 * 60 * 60 * 1000
     });
 
