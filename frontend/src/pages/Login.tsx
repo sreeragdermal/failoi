@@ -1,10 +1,11 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Link, useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../hooks/useAuth.js';
+import { setAccessToken, API_HOST } from '../services/api.js';
 import { Lock, Mail, ArrowRight, Eye, EyeOff } from 'lucide-react';
 
 export const Login: React.FC = () => {
-  const { login, verify2FALogin } = useAuth();
+  const { login, verify2FALogin, checkAuth } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
   const [email, setEmail] = useState('');
@@ -21,6 +22,25 @@ export const Login: React.FC = () => {
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   const from = (location.state as any)?.from?.pathname || '/dashboard';
+
+  useEffect(() => {
+    const params = new URLSearchParams(location.search);
+    const token = params.get('token');
+    const oauthError = params.get('error');
+
+    if (token) {
+      setAccessToken(token);
+      checkAuth()
+        .then(() => {
+          navigate(from, { replace: true });
+        })
+        .catch((err: any) => {
+          setError(err.message || 'Failed to authenticate Google session');
+        });
+    } else if (oauthError) {
+      setError(`Google login failed: ${oauthError.replace(/_/g, ' ')}`);
+    }
+  }, [location, checkAuth, navigate, from]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -69,8 +89,7 @@ export const Login: React.FC = () => {
   };
 
   const handleGoogleLogin = () => {
-    // Standard social auth flow placeholder
-    alert('Google login functionality will be connected to your OAuth client credentials.');
+    window.location.href = `${API_HOST}/auth/google`;
   };
 
   return (

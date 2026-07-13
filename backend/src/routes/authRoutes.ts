@@ -2,7 +2,8 @@ import { Router } from 'express';
 import { 
   register, login, refresh, logout, forgotPassword, resetPassword, 
   updateProfile, changePassword,
-  setup2FA, enable2FA, disable2FA, verify2FALogin
+  setup2FA, enable2FA, disable2FA, verify2FALogin,
+  googleLogin, googleCallback
 } from '../controllers/authController.js';
 import { authenticateUser } from '../middlewares/auth.js';
 
@@ -15,6 +16,10 @@ router.post('/logout', logout);
 router.post('/forgot-password', forgotPassword);
 router.post('/reset-password', resetPassword);
 router.post('/verify-2fa', verify2FALogin);
+
+// Google OAuth routes
+router.get('/google', googleLogin);
+router.get('/google/callback', googleCallback);
 
 // Profile and password change routes
 router.put('/profile', authenticateUser, updateProfile);

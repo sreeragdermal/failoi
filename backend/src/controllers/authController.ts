@@ -724,4 +724,158 @@ export const disable2FA = async (req: AuthRequest, res: Response) => {
   }
 };
 
+// Google OAuth Login Initiator
+export const googleLogin = (req: Request, res: Response) => {
+  const clientId = process.env.GOOGLE_CLIENT_ID;
+  const redirectUri = process.env.GOOGLE_REDIRECT_URI;
+  if (!clientId || !redirectUri) {
+    return res.status(500).json({ error: 'Google OAuth configuration is missing on server.' });
+  }
+
+  const authUrl = `https://accounts.google.com/o/oauth2/v2/auth?` + new URLSearchParams({
+    client_id: clientId,
+    redirect_uri: redirectUri,
+    response_type: 'code',
+    scope: 'email profile openid',
+    prompt: 'select_account'
+  });
+
+  return res.redirect(authUrl);
+};
+
+// Google OAuth Callback Handler
+export const googleCallback = async (req: Request, res: Response) => {
+  const { code, error } = req.query;
+  const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:5173';
+
+  if (error) {
+    console.error('Google OAuth callback error parameter:', error);
+    return res.redirect(`${frontendUrl}/login?error=${encodeURIComponent(String(error))}`);
+  }
+
+  if (!code) {
+    return res.redirect(`${frontendUrl}/login?error=no_authorization_code_received`);
+  }
+
+  const clientId = process.env.GOOGLE_CLIENT_ID;
+  const clientSecret = process.env.GOOGLE_CLIENT_SECRET;
+  const redirectUri = process.env.GOOGLE_REDIRECT_URI;
+
+  if (!clientId || !clientSecret || !redirectUri) {
+    console.error('Missing Google credentials in callback');
+    return res.redirect(`${frontendUrl}/login?error=missing_server_credentials`);
+  }
+
+  try {
+    // 1. Exchange code for tokens
+    const tokenResponse = await fetch('https://oauth2.googleapis.com/token', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: new URLSearchParams({
+        code: String(code),
+        client_id: clientId,
+        client_secret: clientSecret,
+        redirect_uri: redirectUri,
+        grant_type: 'authorization_code'
+      })
+    });
+
+    if (!tokenResponse.ok) {
+      const errText = await tokenResponse.text();
+      console.error('Google token exchange failed:', errText);
+      return res.redirect(`${frontendUrl}/login?error=token_exchange_failed`);
+    }
+
+    const tokenData = (await tokenResponse.json()) as any;
+    const accessTokenGoogle = tokenData.access_token;
+
+    // 2. Fetch user profile from Google info endpoint
+    const userinfoResponse = await fetch(`https://www.googleapis.com/oauth2/v3/userinfo?access_token=${accessTokenGoogle}`);
+    if (!userinfoResponse.ok) {
+      const errText = await userinfoResponse.text();
+      console.error('Google userinfo fetch failed:', errText);
+      return res.redirect(`${frontendUrl}/login?error=userinfo_fetch_failed`);
+    }
+
+    const userinfo = (await userinfoResponse.json()) as any;
+    const email = userinfo.email;
+    const name = userinfo.name || email.split('@')[0];
+
+    if (!email) {
+      return res.redirect(`${frontendUrl}/login?error=email_not_provided_by_google`);
+    }
+
+    // 3. Find or create the user in the database
+    let user = await prisma.user.findUnique({ where: { email } });
+    if (!user) {
+      // Create user with a dummy secure password hash (since they authenticate via Google)
+      const dummyPassword = crypto.randomUUID();
+      const salt = await bcrypt.genSalt(10);
+      const passwordHash = await bcrypt.hash(dummyPassword, salt);
+
+      user = await prisma.user.create({
+        data: {
+          email,
+          name,
+          passwordHash,
+          role: 'REGISTERED',
+          emailVerified: true
+        }
+      });
+
+      await logSystem('AUTH', 'INFO', `New user registered via Google OAuth: ${email}`);
+    } else {
+      if (!user.emailVerified) {
+        user = await prisma.user.update({
+          where: { id: user.id },
+          data: { emailVerified: true }
+        });
+      }
+    }
+
+    // 4. Generate local JWT session tokens
+    const accessToken = generateAccessToken(user);
+    const refreshToken = generateRefreshToken(user);
+
+    // Save active database session
+    const expiresAt = new Date();
+    expiresAt.setDate(expiresAt.getDate() + 7);
+    const telemetry = getSessionTelemetry(req);
+
+    await prisma.session.create({
+      data: {
+        userId: user.id,
+        refreshToken,
+        expiresAt,
+        ...telemetry
+      }
+    });
+
+    // Set refresh token in HttpOnly cookie
+    res.cookie('refreshToken', refreshToken, {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === 'production',
+      sameSite: 'lax',
+      maxAge: 7 * 24 * 60 * 60 * 1000,
+    });
+
+    // Set CSRF cookie token
+    setCsrfCookie(res);
+
+    await logSystem('AUTH', 'INFO', `User logged in via Google OAuth: ${email}`);
+    await logAudit({
+      req: { ...req, user } as any,
+      action: 'USER_LOGIN',
+      module: 'AUTH',
+      targetResource: user.id
+    });
+
+    // 5. Redirect user back to frontend, passing the local API access token
+    return res.redirect(`${frontendUrl}/login?token=${accessToken}`);
+  } catch (err: any) {
+    console.error('Google OAuth callback handler crash:', err);
+    return res.redirect(`${frontendUrl}/login?error=internal_auth_handler_error`);
+  }
+};
+
 
