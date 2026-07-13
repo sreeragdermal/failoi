@@ -26,7 +26,7 @@ const __dirname = path.dirname(__filename);
 dotenv.config();
 
 const app = express();
-const PORT = process.env.PORT || 10000;
+const PORT = process.env.PORT ? parseInt(process.env.PORT, 10) : 10000;
 const FRONTEND_URL = process.env.FRONTEND_URL || 'http://localhost:5173';
 
 // Middlewares
@@ -74,12 +74,18 @@ app.get('/api/v1/health', (req, res) => {
   res.status(200).json({ status: 'OK', timestamp: new Date() });
 });
 
-// Start Background Worker Queue
-startWorker();
+// Start HTTP Server unconditionally to prevent Render port scan timeout (502 Gateway errors)
+app.listen(PORT, '0.0.0.0', () => {
+  console.log(`[Server] Running on port ${PORT} in ${process.env.NODE_ENV || 'development'} mode`);
+});
 
-// Initialize system database settings & Start Server
-initializeSettings().then(() => {
-  app.listen(Number(PORT), '0.0.0.0', () => {
-    console.log(`[Server] Running on port ${PORT} in ${process.env.NODE_ENV || 'development'} mode`);
-  });
+// Safely initialize settings and start worker asynchronously without blocking or terminating the HTTP server
+try {
+  startWorker();
+} catch (workerErr) {
+  console.error('[Startup] PDF background worker failed to start:', workerErr);
+}
+
+initializeSettings().catch((settingsErr) => {
+  console.error('[Startup] Database settings initialization failed:', settingsErr);
 });
