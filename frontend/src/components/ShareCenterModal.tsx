@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { X, Copy, Check, Download, Facebook, Linkedin, Send, MessageCircle, Mail, Settings2 } from 'lucide-react';
+import { X, Copy, Check, Download, Send, MessageCircle, Mail, Settings2 } from 'lucide-react';
 import { getAccessToken, BASE_URL } from '../services/api.js';
 
 interface ShareCenterModalProps {
@@ -149,10 +149,16 @@ export const ShareCenterModal: React.FC<ShareCenterModalProps> = ({ isOpen, onCl
               <h4 style={styles.sectionTitle}>Share to Socials</h4>
               <div style={styles.socialRow}>
                 <a href={socialShares.facebook} target="_blank" rel="noopener noreferrer" style={{ ...styles.socialBtn, backgroundColor: '#1877f2' }}>
-                  <Facebook size={18} />
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M18 2h-3a5 5 0 0 0-5 5v3H7v4h3v8h4v-8h3l1-4h-4V7a1 1 0 0 1 1-1h3z"/>
+                  </svg>
                 </a>
                 <a href={socialShares.linkedin} target="_blank" rel="noopener noreferrer" style={{ ...styles.socialBtn, backgroundColor: '#0a66c2' }}>
-                  <Linkedin size={18} />
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M16 8a6 6 0 0 1 6 6v7h-4v-7a2 2 0 0 0-2-2 2 2 0 0 0-2 2v7h-4v-7a6 6 0 0 1 6-6z"/>
+                    <rect width="4" height="12" x="2" y="9"/>
+                    <circle cx="4" cy="4" r="2"/>
+                  </svg>
                 </a>
                 <a href={socialShares.whatsapp} target="_blank" rel="noopener noreferrer" style={{ ...styles.socialBtn, backgroundColor: '#25d366' }}>
                   <MessageCircle size={18} />
