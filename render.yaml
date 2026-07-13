@@ -1,0 +1,22 @@
+# Render Infrastructure Blueprint Specification
+services:
+  - type: web
+    name: failoi-backend
+    env: node
+    rootDir: backend
+    buildCommand: npm install && npm run build
+    startCommand: npm run start
+    plan: free
+    envVars:
+      - key: PORT
+        value: 10000
+      - key: NODE_ENV
+        value: production
+      - key: JWT_SECRET
+        generateValue: true
+      - key: JWT_REFRESH_SECRET
+        generateValue: true
+      - key: DATABASE_URL
+        placeholder: "Enter your Supabase Connection String URL"
+      - key: FRONTEND_URL
+        placeholder: "Enter your deployed Vercel frontend URL"
