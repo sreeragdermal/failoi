@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Link, useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../hooks/useAuth.js';
-import { BASE_URL } from '../services/api.js';
+import { BASE_URL, setCsrfToken } from '../services/api.js';
 import { Lock, Mail, ArrowRight, Eye, EyeOff } from 'lucide-react';
 
 export const Login: React.FC = () => {
@@ -26,10 +26,14 @@ export const Login: React.FC = () => {
   useEffect(() => {
     const params = new URLSearchParams(location.search);
     const token = params.get('token');
+    const csrfToken = params.get('csrfToken');
     const oauthError = params.get('error');
 
     if (token) {
       console.log('[Google OAuth] Frontend received authentication token from callback redirect');
+      if (csrfToken) {
+        setCsrfToken(csrfToken);
+      }
       setOAuthSession(token)
         .then(() => {
           // Remove OAuth token query parameters from the address bar to prevent reprocessing on refresh

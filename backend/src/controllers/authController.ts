@@ -860,7 +860,7 @@ export const googleCallback = async (req: Request, res: Response) => {
     });
 
     // Set CSRF cookie token
-    setCsrfCookie(res);
+    const csrfToken = setCsrfCookie(res);
 
     await logSystem('AUTH', 'INFO', `User logged in via Google OAuth: ${email}`);
     // Safely attempt audit logging (non-fatal for authentication flow)
@@ -876,8 +876,8 @@ export const googleCallback = async (req: Request, res: Response) => {
       console.error('[Google OAuth] Non-fatal audit log failure:', auditErr);
     }
 
-    // 5. Redirect user back to frontend, passing the local API access token
-    return res.redirect(`${frontendUrl}/login?token=${accessToken}`);
+    // 5. Redirect user back to frontend, passing the local API access token and CSRF token
+    return res.redirect(`${frontendUrl}/login?token=${accessToken}&csrfToken=${csrfToken}`);
   } catch (err: any) {
     console.error('Google OAuth callback handler crash:', err);
     return res.redirect(`${frontendUrl}/login?error=internal_auth_handler_error`);

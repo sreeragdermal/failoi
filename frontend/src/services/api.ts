@@ -3,6 +3,11 @@ export const BASE_URL = `${API_HOST}/api/v1`;
 
 let accessToken: string | null = null;
 let refreshPromise: Promise<string> | null = null;
+let inMemoryCsrfToken: string | null = null;
+
+export const setCsrfToken = (token: string | null) => {
+  inMemoryCsrfToken = token;
+};
 
 // Helper to read cookies client-side
 const getCookie = (name: string): string | null => {
@@ -38,6 +43,9 @@ const handleTokenRefresh = async (): Promise<string> => {
 
       const data = await response.json();
       setAccessToken(data.accessToken);
+      if (data.csrfToken) {
+        setCsrfToken(data.csrfToken);
+      }
       return data.accessToken;
     } catch (err) {
       setAccessToken(null);
@@ -58,8 +66,8 @@ export const apiRequest = async (path: string, options: RequestInit = {}): Promi
     headers.set('Authorization', `Bearer ${accessToken}`);
   }
 
-  // Inject CSRF double submit token if cookie is set
-  const csrfToken = getCookie('csrfToken');
+  // Inject CSRF double submit token if token/cookie is set
+  const csrfToken = inMemoryCsrfToken || getCookie('csrfToken');
   if (csrfToken) {
     headers.set('X-CSRF-Token', csrfToken);
   }
@@ -84,7 +92,7 @@ export const apiRequest = async (path: string, options: RequestInit = {}): Promi
       // Update header with new token and retry
       headers.set('Authorization', `Bearer ${newToken}`);
       // Refresh CSRF header after refresh
-      const refreshedCsrf = getCookie('csrfToken');
+      const refreshedCsrf = inMemoryCsrfToken || getCookie('csrfToken');
       if (refreshedCsrf) {
         headers.set('X-CSRF-Token', refreshedCsrf);
       }
@@ -116,7 +124,11 @@ export const apiRequest = async (path: string, options: RequestInit = {}): Promi
     return null;
   }
 
-  return response.json();
+  const data = await response.json();
+  if (data && data.csrfToken) {
+    setCsrfToken(data.csrfToken);
+  }
+  return data;
 };
 
 export const uploadFileWithProgress = (
@@ -137,7 +149,7 @@ export const uploadFileWithProgress = (
     }
 
     // Set CSRF token on XMLHttpRequest
-    const csrfToken = getCookie('csrfToken');
+    const csrfToken = inMemoryCsrfToken || getCookie('csrfToken');
     if (csrfToken) {
       xhr.setRequestHeader('X-CSRF-Token', csrfToken);
     }
