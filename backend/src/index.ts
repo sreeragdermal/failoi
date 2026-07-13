@@ -29,21 +29,40 @@ const app = express();
 const PORT = process.env.PORT ? parseInt(process.env.PORT, 10) : 10000;
 const FRONTEND_URL = process.env.FRONTEND_URL || 'http://localhost:5173';
 
-// Middlewares
-const allowedOrigins = [
-  FRONTEND_URL,
-  'http://localhost:5173',
-  'http://localhost:5174',
-  'http://localhost:5175'
-];
-
 app.use(cors({
   origin: (origin, callback) => {
-    if (!origin || allowedOrigins.includes(origin) || origin.startsWith('http://localhost:')) {
-      callback(null, true);
-    } else {
-      callback(new Error('Not allowed by CORS'));
+    // 1. Allow requests with no Origin (e.g. mobile apps, curl, or direct browser navigations like OAuth callback)
+    if (!origin) {
+      return callback(null, true);
     }
+
+    // 2. Allow localhost development origins
+    if (origin.startsWith('http://localhost:') || origin.startsWith('http://127.0.0.1:')) {
+      return callback(null, true);
+    }
+
+    // 3. Allow FRONTEND_URL environment variable
+    const frontendUrl = process.env.FRONTEND_URL;
+    if (frontendUrl && origin === frontendUrl) {
+      return callback(null, true);
+    }
+
+    // 4. Allow production frontend and Vercel preview domains
+    if (origin === 'https://failoi.vercel.app') {
+      return callback(null, true);
+    }
+
+    try {
+      const parsedOrigin = new URL(origin);
+      if (parsedOrigin.hostname.endsWith('.vercel.app')) {
+        return callback(null, true);
+      }
+    } catch (e) {
+      // Fail silently if origin URL is not parseable
+    }
+
+    // 5. Safe rejection without throwing/crashing Express
+    return callback(null, false);
   },
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
