@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Link, useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../hooks/useAuth.js';
-import { setAccessToken, API_HOST } from '../services/api.js';
+import { setAccessToken, BASE_URL } from '../services/api.js';
 import { Lock, Mail, ArrowRight, Eye, EyeOff } from 'lucide-react';
 
 export const Login: React.FC = () => {
@@ -89,7 +89,7 @@ export const Login: React.FC = () => {
   };
 
   const handleGoogleLogin = () => {
-    window.location.href = `${API_HOST}/auth/google`;
+    window.location.href = `${BASE_URL}/auth/google`;
   };
 
   return (
