@@ -69,6 +69,15 @@ app.use('/api/v1/flipbooks', flipbookRoutes);
 app.use('/api/v1/analytics', analyticsRoutes);
 app.use('/api/v1/admin', adminRoutes);
 
+// Root Status Check
+app.get('/', (req, res) => {
+  res.status(200).json({
+    status: 'OK',
+    message: 'FAILOI API is running successfully',
+    timestamp: new Date()
+  });
+});
+
 // Health Check
 app.get('/api/v1/health', (req, res) => {
   res.status(200).json({ status: 'OK', timestamp: new Date() });
