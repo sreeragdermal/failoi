@@ -876,12 +876,19 @@ export const googleCallback = async (req: Request, res: Response) => {
       console.error('[Google OAuth] Non-fatal audit log failure:', auditErr);
     }
 
-    // 5. Redirect user back to frontend, passing the local API access token and CSRF token
-    return res.redirect(`${frontendUrl}/login?token=${accessToken}&csrfToken=${csrfToken}`);
+    // 5. Redirect user back to frontend. No tokens are passed in the URL (they are exchanged silently via HttpOnly cookies)
+    console.log('[Google OAuth] Callback successful. Redirecting user back to frontend login landing page.');
+    return res.redirect(`${frontendUrl}/login`);
   } catch (err: any) {
     console.error('Google OAuth callback handler crash:', err);
     return res.redirect(`${frontendUrl}/login?error=internal_auth_handler_error`);
   }
+};
+
+// Expose secure endpoint to retrieve a new CSRF token after session checks
+export const getCsrfToken = (req: Request, res: Response) => {
+  const token = setCsrfCookie(res);
+  return res.status(200).json({ csrfToken: token });
 };
 
 

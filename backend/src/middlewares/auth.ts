@@ -132,8 +132,33 @@ export const csrfProtection = (req: Request, res: Response, next: NextFunction) 
     return next();
   }
 
+  // Bypass authentication initialization routes where no active session is yet exploited
+  const bypassedPaths = [
+    '/api/v1/auth/login',
+    '/api/v1/auth/register',
+    '/api/v1/auth/refresh',
+    '/api/v1/auth/csrf',
+    '/api/v1/auth/google',
+    '/api/v1/auth/google/callback'
+  ];
+
+  if (bypassedPaths.some(path => req.path === path)) {
+    return next();
+  }
+
   const cookieCsrfToken = req.cookies.csrfToken;
   const headerCsrfToken = req.headers['x-csrf-token'];
+  const refreshCookie = req.cookies.refreshToken;
+
+  // Safe boolean diagnostics logging for CSRF debugging in production
+  console.log('[CSRF Diagnostic]', {
+    hasCsrfHeader: !!headerCsrfToken,
+    hasCsrfCookie: !!cookieCsrfToken,
+    csrfTokensMatch: cookieCsrfToken === headerCsrfToken,
+    hasRefreshCookie: !!refreshCookie,
+    method,
+    path: req.path
+  });
 
   if (!cookieCsrfToken || !headerCsrfToken || cookieCsrfToken !== headerCsrfToken) {
     return res.status(403).json({ error: 'CSRF token validation failed' });

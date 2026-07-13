@@ -59,6 +59,29 @@ const handleTokenRefresh = async (): Promise<string> => {
 };
 
 export const apiRequest = async (path: string, options: RequestInit = {}): Promise<any> => {
+  const method = options.method || 'GET';
+  const isMutation = !['GET', 'HEAD', 'OPTIONS'].includes(method.toUpperCase());
+
+  // Automatically pre-fetch the CSRF token before performing any mutation if we do not have one in memory
+  if (isMutation && !inMemoryCsrfToken && !path.includes('/auth/csrf') && !path.includes('/auth/login') && !path.includes('/auth/register') && !path.includes('/auth/refresh')) {
+    try {
+      console.log('[CSRF Client] Pre-fetching CSRF token from backend for request:', path);
+      const csrfRes = await fetch(`${BASE_URL}/auth/csrf`, {
+        method: 'GET',
+        headers: accessToken ? { 'Authorization': `Bearer ${accessToken}` } : {},
+        credentials: 'include',
+      });
+      if (csrfRes.ok) {
+        const csrfData = await csrfRes.json();
+        if (csrfData && csrfData.csrfToken) {
+          setCsrfToken(csrfData.csrfToken);
+        }
+      }
+    } catch (csrfErr) {
+      console.error('[CSRF Client] Pre-fetch request threw error:', csrfErr);
+    }
+  }
+
   const url = `${BASE_URL}${path}`;
   const headers = new Headers(options.headers || {});
 
@@ -131,11 +154,31 @@ export const apiRequest = async (path: string, options: RequestInit = {}): Promi
   return data;
 };
 
-export const uploadFileWithProgress = (
+export const uploadFileWithProgress = async (
   path: string,
   formData: FormData,
   onProgress: (percent: number) => void
 ): Promise<any> => {
+  // Pre-fetch CSRF token if not in memory
+  if (!inMemoryCsrfToken) {
+    try {
+      console.log('[CSRF Client] Pre-fetching CSRF token from backend for file upload:', path);
+      const csrfRes = await fetch(`${BASE_URL}/auth/csrf`, {
+        method: 'GET',
+        headers: accessToken ? { 'Authorization': `Bearer ${accessToken}` } : {},
+        credentials: 'include',
+      });
+      if (csrfRes.ok) {
+        const csrfData = await csrfRes.json();
+        if (csrfData && csrfData.csrfToken) {
+          setCsrfToken(csrfData.csrfToken);
+        }
+      }
+    } catch (csrfErr) {
+      console.error('[CSRF Client] Pre-fetch request for upload threw error:', csrfErr);
+    }
+  }
+
   return new Promise((resolve, reject) => {
     const xhr = new XMLHttpRequest();
     const url = `${BASE_URL}${path}`;

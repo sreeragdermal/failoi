@@ -3,7 +3,7 @@ import {
   register, login, refresh, logout, forgotPassword, resetPassword, 
   updateProfile, changePassword,
   setup2FA, enable2FA, disable2FA, verify2FALogin,
-  googleLogin, googleCallback
+  googleLogin, googleCallback, getCsrfToken
 } from '../controllers/authController.js';
 import { authenticateUser } from '../middlewares/auth.js';
 
@@ -20,6 +20,9 @@ router.post('/verify-2fa', verify2FALogin);
 // Google OAuth routes
 router.get('/google', googleLogin);
 router.get('/google/callback', googleCallback);
+
+// CSRF recovery endpoint
+router.get('/csrf', authenticateUser, getCsrfToken);
 
 // Profile and password change routes
 router.put('/profile', authenticateUser, updateProfile);
