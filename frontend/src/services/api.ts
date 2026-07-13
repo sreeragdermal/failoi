@@ -1,5 +1,5 @@
-export const API_HOST = import.meta.env.VITE_API_URL || 'http://localhost:5005';
-export const BASE_URL = `${API_HOST}/api/v1`;
+export const API_HOST = '';
+export const BASE_URL = '/api/v1';
 
 let accessToken: string | null = null;
 let refreshPromise: Promise<string> | null = null;

@@ -354,6 +354,8 @@ export const verify2FALogin = async (req: Request, res: Response) => {
 export const refresh = async (req: Request, res: Response) => {
   const refreshToken = req.cookies.refreshToken;
 
+  console.log('[Refresh API Log] /auth/refresh invoked. Has refreshToken cookie:', !!refreshToken);
+
   if (!refreshToken) {
     return res.status(401).json({ error: 'Refresh token required' });
   }
@@ -365,10 +367,12 @@ export const refresh = async (req: Request, res: Response) => {
     });
 
     if (!dbSession || dbSession.revoked || dbSession.expiresAt < new Date()) {
+      console.log('[Refresh API Log] Refresh failed: Session invalid, revoked, or expired.');
       return res.status(403).json({ error: 'Invalid, revoked, or expired refresh token' });
     }
 
     if (dbSession.user.isSuspended) {
+      console.log('[Refresh API Log] Refresh failed: Account is suspended.');
       return res.status(403).json({ error: 'Account suspended' });
     }
 
@@ -391,6 +395,8 @@ export const refresh = async (req: Request, res: Response) => {
     // Check if currently impersonated (cookie adminRefreshToken exists)
     const isImpersonated = !!req.cookies.adminRefreshToken;
 
+    console.log('[Refresh API Log] Refresh succeeded. Issuing new tokens for:', dbSession.user.email);
+
     return res.status(200).json({
       accessToken,
       csrfToken,
@@ -404,7 +410,7 @@ export const refresh = async (req: Request, res: Response) => {
       },
     });
   } catch (err) {
-    console.error('Refresh token error:', err);
+    console.error('[Refresh API Log] Refresh token error:', err);
     return res.status(403).json({ error: 'Invalid or expired refresh token' });
   }
 };
@@ -852,6 +858,7 @@ export const googleCallback = async (req: Request, res: Response) => {
     });
 
     // Set refresh token in HttpOnly cookie
+    console.log('[Google OAuth Log] Login completed successfully. Setting refresh cookie sameSite none.');
     res.cookie('refreshToken', refreshToken, {
       httpOnly: true,
       secure: true,
@@ -860,6 +867,7 @@ export const googleCallback = async (req: Request, res: Response) => {
     });
 
     // Set CSRF cookie token
+    console.log('[Google OAuth Log] Setting CSRF cookie.');
     const csrfToken = setCsrfCookie(res);
 
     await logSystem('AUTH', 'INFO', `User logged in via Google OAuth: ${email}`);

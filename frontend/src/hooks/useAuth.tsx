@@ -29,12 +29,15 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   // Check auth state on mount (silent refresh)
   const checkAuth = async () => {
+    console.log('[Frontend Auth Log] checkAuth() invoked on mount.');
     try {
       const data = await apiRequest('/auth/refresh', { method: 'POST' });
       setAccessToken(data.accessToken);
       setUser(data.user);
+      console.log('[Frontend Auth Log] Silent refresh succeeded. User state loaded:', data.user.email);
     } catch (err) {
       // Not logged in or expired
+      console.log('[Frontend Auth Log] Silent refresh failed or user is not logged in.');
       setUser(null);
       setAccessToken(null);
     } finally {
