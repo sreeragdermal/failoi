@@ -4,17 +4,14 @@ import { AuthRequest } from '../middlewares/auth.js';
 import prisma from '../config/db.js';
 import storageService from '../services/storageService.js';
 import { generateUniqueSlug } from '../utils/slugify.js';
+import { getOrInitializeGuestSession, getGuestSession } from '../utils/guestSession.js';
 
 /**
- * Handle PDF and cover image upload.
+ * Handle PDF and cover image upload (supports guests and authenticated users).
  */
 export const uploadFlipbook = async (req: AuthRequest, res: Response) => {
-  if (!req.user) {
-    return res.status(401).json({ error: 'Authentication required' });
-  }
-
   const files = req.files as { [fieldname: string]: Express.Multer.File[] };
-  
+
   const pdfFile = files?.pdf?.[0];
   const thumbnailFile = files?.thumbnail?.[0];
 
@@ -44,17 +41,36 @@ export const uploadFlipbook = async (req: AuthRequest, res: Response) => {
     const title = req.body.title || pdfFile.originalname.replace(/\.[^/.]+$/, '');
     const slug = await generateUniqueSlug(title);
 
-    // 4. Save initial database entry (Private by default)
+    // Determine ownership (User vs Guest)
+    let userId: string | null = null;
+    let guestSessionId: string | null = null;
+    let expirationDate: Date | null = null;
+    let visibility: 'PRIVATE' | 'PUBLIC' = 'PRIVATE';
+
+    if (req.user) {
+      userId = req.user.id;
+      visibility = 'PRIVATE';
+    } else {
+      // Guest upload: resolve or create guest session
+      const guestSession = await getOrInitializeGuestSession(req, res);
+      guestSessionId = guestSession.id;
+      visibility = 'PUBLIC'; // Guest uploads are public by default so they can flip & share immediately
+      expirationDate = new Date(Date.now() + 24 * 60 * 60 * 1000); // 24 hours expiry
+    }
+
+    // 4. Save initial database entry
     const flipbook = await prisma.flipbook.create({
       data: {
-        userId: req.user.id,
+        userId,
+        guestSessionId,
+        expirationDate,
         title,
         description: req.body.description || '',
         slug,
         originalPdfPath: pdfPath,
         thumbnailPath,
         fileSize: pdfFile.size,
-        visibility: 'PRIVATE', // Standard private-by-default requirement
+        visibility,
         status: 'PENDING',     // Queued for background worker parsing
       },
     });
@@ -137,12 +153,9 @@ export const getFlipbookById = async (req: AuthRequest, res: Response) => {
 
 /**
  * Update flipbook settings (Title, Visibility, Expiration, Protections).
+ * Allows guests to edit their temporary flipbook if session cookie matches.
  */
 export const updateFlipbook = async (req: AuthRequest, res: Response) => {
-  if (!req.user) {
-    return res.status(401).json({ error: 'Authentication required' });
-  }
-
   const { id } = req.params;
   const {
     title,
@@ -159,16 +172,34 @@ export const updateFlipbook = async (req: AuthRequest, res: Response) => {
   } = req.body;
 
   try {
-    // 1. Verify owner
-    const existing = await prisma.flipbook.findFirst({
-      where: { id, userId: req.user.id },
+    let canEdit = false;
+    const existing = await prisma.flipbook.findUnique({
+      where: { id }
     });
 
     if (!existing) {
       return res.status(404).json({ error: 'Flipbook not found' });
     }
 
-    // 2. Validate custom slug uniqueness if changed
+    // Check expiration date
+    if (existing.expirationDate && existing.expirationDate < new Date()) {
+      return res.status(410).json({ error: 'flipbook_expired', message: 'This flipbook has expired.' });
+    }
+
+    if (req.user && existing.userId === req.user.id) {
+      canEdit = true;
+    } else {
+      const guestSession = await getGuestSession(req);
+      if (guestSession && existing.guestSessionId === guestSession.id && existing.userId === null) {
+        canEdit = true;
+      }
+    }
+
+    if (!canEdit) {
+      return res.status(403).json({ error: 'Access denied: insufficient permissions to update this flipbook' });
+    }
+
+    // Validate custom slug uniqueness if changed
     let finalSlug = existing.slug;
     if (slug && slug !== existing.slug) {
       const slugCollision = await prisma.flipbook.findFirst({
@@ -180,7 +211,7 @@ export const updateFlipbook = async (req: AuthRequest, res: Response) => {
       finalSlug = slug;
     }
 
-    // 3. Hash password if visibility set to PASSWORD and new password is provided
+    // Hash password if visibility set to PASSWORD and new password is provided
     let passwordHash = existing.passwordHash;
     if (visibility === 'PASSWORD') {
       if (password) {
@@ -188,11 +219,11 @@ export const updateFlipbook = async (req: AuthRequest, res: Response) => {
       } else if (!existing.passwordHash) {
         return res.status(400).json({ error: 'Password required for password visibility' });
       }
-    } else {
+    } else if (visibility !== undefined) {
       passwordHash = null; // Clear password if visibility changes
     }
 
-    // 4. Update settings
+    // Update settings
     const updated = await prisma.flipbook.update({
       where: { id },
       data: {
@@ -201,7 +232,10 @@ export const updateFlipbook = async (req: AuthRequest, res: Response) => {
         slug: finalSlug,
         visibility: visibility !== undefined ? visibility : existing.visibility,
         passwordHash,
-        expirationDate: expirationDate !== undefined ? (expirationDate ? new Date(expirationDate) : null) : existing.expirationDate,
+        // Only allow authenticated users to change or clear the expirationDate manually
+        expirationDate: req.user && expirationDate !== undefined
+          ? (expirationDate ? new Date(expirationDate) : null)
+          : existing.expirationDate,
         disableDownload: disableDownload !== undefined ? disableDownload : existing.disableDownload,
         disablePrint: disablePrint !== undefined ? disablePrint : existing.disablePrint,
         disableCopy: disableCopy !== undefined ? disableCopy : existing.disableCopy,
@@ -228,19 +262,29 @@ export const updateFlipbook = async (req: AuthRequest, res: Response) => {
  * Delete a flipbook and its files.
  */
 export const deleteFlipbook = async (req: AuthRequest, res: Response) => {
-  if (!req.user) {
-    return res.status(401).json({ error: 'Authentication required' });
-  }
-
   const { id } = req.params;
 
   try {
-    const flipbook = await prisma.flipbook.findFirst({
-      where: { id, userId: req.user.id },
+    const existing = await prisma.flipbook.findUnique({
+      where: { id }
     });
 
-    if (!flipbook) {
+    if (!existing) {
       return res.status(404).json({ error: 'Flipbook not found' });
+    }
+
+    let canDelete = false;
+    if (req.user && existing.userId === req.user.id) {
+      canDelete = true;
+    } else {
+      const guestSession = await getGuestSession(req);
+      if (guestSession && existing.guestSessionId === guestSession.id && existing.userId === null) {
+        canDelete = true;
+      }
+    }
+
+    if (!canDelete) {
+      return res.status(403).json({ error: 'Access denied: insufficient permissions to delete this flipbook' });
     }
 
     // Delete database entry
@@ -249,13 +293,13 @@ export const deleteFlipbook = async (req: AuthRequest, res: Response) => {
     });
 
     // Delete files asynchronously
-    storageService.deleteFile(flipbook.originalPdfPath).catch((err) =>
-      console.error(`[Cleanup] Failed to delete PDF at ${flipbook.originalPdfPath}:`, err)
+    storageService.deleteFile(existing.originalPdfPath).catch((err) =>
+      console.error(`[Cleanup] Failed to delete PDF at ${existing.originalPdfPath}:`, err)
     );
 
-    if (flipbook.thumbnailPath) {
-      storageService.deleteFile(flipbook.thumbnailPath).catch((err) =>
-        console.error(`[Cleanup] Failed to delete thumbnail at ${flipbook.thumbnailPath}:`, err)
+    if (existing.thumbnailPath) {
+      storageService.deleteFile(existing.thumbnailPath).catch((err) =>
+        console.error(`[Cleanup] Failed to delete thumbnail at ${existing.thumbnailPath}:`, err)
       );
     }
 
@@ -267,8 +311,82 @@ export const deleteFlipbook = async (req: AuthRequest, res: Response) => {
 };
 
 /**
+ * Retrieve workspace flipbook management data (includes permissions, countdowns, and claim state).
+ */
+export const getWorkspaceFlipbook = async (req: AuthRequest, res: Response) => {
+  const { id } = req.params;
+
+  try {
+    const flipbook = await prisma.flipbook.findUnique({
+      where: { id },
+      include: {
+        pages: {
+          orderBy: { pageNumber: 'asc' }
+        }
+      }
+    });
+
+    if (!flipbook) {
+      return res.status(404).json({ error: 'Flipbook not found' });
+    }
+
+    // Check expiration date
+    if (flipbook.expirationDate && flipbook.expirationDate < new Date()) {
+      return res.status(410).json({ error: 'flipbook_expired', message: 'This flipbook link has expired.' });
+    }
+
+    let canEdit = false;
+    let canClaim = false;
+
+    if (req.user && flipbook.userId === req.user.id) {
+      canEdit = true;
+      canClaim = false;
+    } else {
+      const guestSession = await getGuestSession(req);
+      if (guestSession && flipbook.guestSessionId === guestSession.id && flipbook.userId === null) {
+        canEdit = true;
+        canClaim = true;
+      }
+    }
+
+    if (!canEdit) {
+      return res.status(403).json({ error: 'Access denied: insufficient permissions to manage this workspace.' });
+    }
+
+    const formattedPages = flipbook.pages.map(page => ({
+      ...page,
+      imageUrl: storageService.getFileUrl(page.imagePath)
+    }));
+
+    return res.status(200).json({
+      flipbook: {
+        id: flipbook.id,
+        title: flipbook.title,
+        description: flipbook.description,
+        slug: flipbook.slug,
+        visibility: flipbook.visibility,
+        status: flipbook.status,
+        error: flipbook.error,
+        pageCount: flipbook.pageCount,
+        fileSize: flipbook.fileSize,
+        temporary: flipbook.userId === null,
+        expiresAt: flipbook.expirationDate,
+        pdfUrl: storageService.getFileUrl(flipbook.originalPdfPath),
+        thumbnailUrl: flipbook.thumbnailPath ? storageService.getFileUrl(flipbook.thumbnailPath) : null,
+        pages: formattedPages,
+        canEdit,
+        canClaim
+      }
+    });
+  } catch (err) {
+    console.error('[FlipbookController] Fetch workspace flipbook error:', err);
+    return res.status(500).json({ error: 'Failed to retrieve workspace details' });
+  }
+};
+
+/**
  * Retrieve flipbook metadata by slug for public reader access.
- * Enforces privacy, expiration date, and logs basic metadata.
+ * Returns only public-safe presentation variables.
  */
 export const getPublicFlipbookBySlug = async (req: AuthRequest, res: Response) => {
   const { slug } = req.params;
@@ -280,6 +398,9 @@ export const getPublicFlipbookBySlug = async (req: AuthRequest, res: Response) =
         user: {
           select: { name: true, email: true },
         },
+        pages: {
+          orderBy: { pageNumber: 'asc' }
+        }
       },
     });
 
@@ -287,23 +408,28 @@ export const getPublicFlipbookBySlug = async (req: AuthRequest, res: Response) =
       return res.status(404).json({ error: 'Flipbook not found' });
     }
 
-    // 1. Check expiration date
+    // Check expiration date
     if (flipbook.expirationDate && flipbook.expirationDate < new Date()) {
-      return res.status(410).json({ error: 'This flipbook link has expired.' });
+      return res.status(410).json({ error: 'flipbook_expired', message: 'This flipbook link has expired.' });
     }
 
-    // 2. If private, only owner can view
+    // If private, only owner can view
     if (flipbook.visibility === 'PRIVATE') {
       if (!req.user || req.user.id !== flipbook.userId) {
         return res.status(403).json({ error: 'This flipbook is private.' });
       }
     }
 
-    // 3. If password protected, require password unlock (except for owner)
+    // If password protected, require password unlock (except for owner)
     const isOwner = req.user?.id === flipbook.userId;
     const isPasswordProtected = flipbook.visibility === 'PASSWORD';
 
-    // Format response details (hide original file locations for strict security)
+    const formattedPages = flipbook.pages.map(page => ({
+      ...page,
+      imageUrl: storageService.getFileUrl(page.imagePath)
+    }));
+
+    // Format response details (hide original file locations and guest hashes for strict security)
     const secureFlipbook = {
       id: flipbook.id,
       title: flipbook.title,
@@ -318,11 +444,14 @@ export const getPublicFlipbookBySlug = async (req: AuthRequest, res: Response) =
       requireEmail: flipbook.requireEmail,
       domainRestriction: flipbook.domainRestriction,
       status: flipbook.status,
-      ownerName: flipbook.user.name || 'Publisher',
+      ownerName: flipbook.user?.name || 'Publisher',
       thumbnailUrl: flipbook.thumbnailPath ? storageService.getFileUrl(flipbook.thumbnailPath) : null,
       pdfUrl: isOwner || !isPasswordProtected ? storageService.getFileUrl(flipbook.originalPdfPath) : null,
+      pages: isOwner || !isPasswordProtected ? formattedPages : [],
       isPasswordProtected,
-      isUnlocked: isOwner, // Owner doesn't need password unlock
+      isUnlocked: isOwner,
+      temporary: flipbook.userId === null,
+      expiresAt: flipbook.expirationDate
     };
 
     return res.status(200).json({ flipbook: secureFlipbook });
@@ -384,8 +513,20 @@ export const getFlipbookQRCode = async (req: AuthRequest, res: Response) => {
       return res.status(404).json({ error: 'Flipbook not found' });
     }
 
-    // Owner check for private books
-    if (flipbook.visibility === 'PRIVATE' && (!req.user || req.user.id !== flipbook.userId)) {
+    // Owner check for private books, allow guests to get QR if session matches
+    let isAllowed = false;
+    if (flipbook.visibility !== 'PRIVATE') {
+      isAllowed = true;
+    } else if (req.user && req.user.id === flipbook.userId) {
+      isAllowed = true;
+    } else {
+      const guestSession = await getGuestSession(req);
+      if (guestSession && flipbook.guestSessionId === guestSession.id && flipbook.userId === null) {
+        isAllowed = true;
+      }
+    }
+
+    if (!isAllowed) {
       return res.status(403).json({ error: 'Access denied: this flipbook is private.' });
     }
 
@@ -393,8 +534,7 @@ export const getFlipbookQRCode = async (req: AuthRequest, res: Response) => {
     const publicUrl = `${frontendUrl}/f/${flipbook.slug}`;
 
     res.setHeader('Content-Type', 'image/png');
-    
-    // Import and stream
+
     const QRCode = (await import('qrcode')).default;
     await QRCode.toFileStream(res, publicUrl, {
       type: 'png',
@@ -409,3 +549,54 @@ export const getFlipbookQRCode = async (req: AuthRequest, res: Response) => {
   }
 };
 
+/**
+ * Claim an unclaimed guest flipbook atomically using Prisma.
+ */
+export const claimFlipbook = async (req: AuthRequest, res: Response) => {
+  if (!req.user) {
+    return res.status(401).json({ error: 'Authentication required' });
+  }
+
+  const { flipbookId } = req.body;
+  if (!flipbookId) {
+    return res.status(400).json({ error: 'claim_failed', message: 'Flipbook ID is required to claim.' });
+  }
+
+  try {
+    const guestSession = await getGuestSession(req);
+    if (!guestSession) {
+      return res.status(400).json({ error: 'claim_failed', message: 'No active guest session cookie found.' });
+    }
+
+    const now = new Date();
+    const affected = await prisma.flipbook.updateMany({
+      where: {
+        id: flipbookId,
+        userId: null,
+        guestSessionId: guestSession.id,
+        expirationDate: { gt: now } // Exclaimed guest books must have expirationDate in the future
+      },
+      data: {
+        userId: req.user.id,
+        guestSessionId: null,
+        expirationDate: null,
+        claimedAt: now
+      }
+    });
+
+    if (affected.count === 0) {
+      return res.status(400).json({
+        error: 'claim_failed',
+        message: 'Flipbook already claimed, expired, or invalid guest ownership.'
+      });
+    }
+
+    return res.status(200).json({
+      message: 'Saved to your library',
+      flipbookId
+    });
+  } catch (err) {
+    console.error('[FlipbookController] Claim flipbook error:', err);
+    return res.status(500).json({ error: 'Failed to claim flipbook' });
+  }
+};

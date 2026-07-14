@@ -68,9 +68,12 @@ model Session {
 }
 
 model Flipbook {
-  id                String       @id @default(uuid())
-  userId            String
-  user              User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  id                String        @id @default(uuid())
+  userId            String?       // Nullable for guest-created flipbooks
+  user              User?         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  guestSessionId    String?
+  guestSession      GuestSession? @relation(fields: [guestSessionId], references: [id], onDelete: SetNull)
+  claimedAt         DateTime?
   title             String
   description       String?
   slug              String       @unique
@@ -223,4 +226,13 @@ model Notification {
   message   String
   read      Boolean  @default(false)
   createdAt DateTime @default(now())
+}
+
+model GuestSession {
+  id          String     @id @default(uuid())
+  tokenHash   String     @unique // SHA-256 hash of the opaque session token
+  createdAt   DateTime   @default(now())
+  expiresAt   DateTime
+  lastSeenAt  DateTime   @default(now())
+  flipbooks   Flipbook[] // Backrelation to associated guest flipbooks
 }

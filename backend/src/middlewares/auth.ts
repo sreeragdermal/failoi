@@ -35,6 +35,36 @@ export const authenticateUser = (req: AuthRequest, res: Response, next: NextFunc
   }
 };
 
+// Optional JWT Authentication Guard
+export const optionalAuthenticateUser = (req: AuthRequest, res: Response, next: NextFunction) => {
+  const authHeader = req.headers.authorization;
+  const token = authHeader && authHeader.split(' ')[1];
+
+  if (!authHeader) {
+    // No auth header at all: continue cleanly as guest
+    req.user = undefined;
+    return next();
+  }
+
+  if (!token) {
+    // Authorization header exists but token format is missing or invalid: reject
+    return res.status(401).json({ error: 'Invalid Authorization header format' });
+  }
+
+  try {
+    const decoded = jwt.verify(token, JWT_SECRET) as {
+      id: string;
+      email: string;
+      role: string;
+    };
+    req.user = decoded;
+    next();
+  } catch (err) {
+    // Token is invalid or expired: reject immediately (no silent downgrade)
+    return res.status(401).json({ error: 'Invalid or expired access token' });
+  }
+};
+
 // 2. Role Based Access Control
 export const requireRole = (roles: string[]) => {
   return (req: AuthRequest, res: Response, next: NextFunction) => {

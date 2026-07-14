@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import multer from 'multer';
-import { authenticateUser } from '../middlewares/auth.js';
+import { authenticateUser, optionalAuthenticateUser } from '../middlewares/auth.js';
 import {
   uploadFlipbook,
   getMyFlipbooks,
@@ -9,7 +9,9 @@ import {
   deleteFlipbook,
   getPublicFlipbookBySlug,
   unlockPasswordProtectedFlipbook,
-  getFlipbookQRCode
+  getFlipbookQRCode,
+  getWorkspaceFlipbook,
+  claimFlipbook
 } from '../controllers/flipbookController.js';
 
 const router = Router();
@@ -45,24 +47,19 @@ const uploadFields = upload.fields([
   { name: 'thumbnail', maxCount: 1 }
 ]);
 
-// Private Workspace Routes
-router.post('/', authenticateUser, uploadFields, uploadFlipbook);
-router.get('/', authenticateUser, getMyFlipbooks);
-router.get('/:id', authenticateUser, getFlipbookById);
-router.get('/:id/qr', (req, res, next) => {
+// 1. Static Prefix & Claim Routes (Registered FIRST to avoid capture conflicts with generic /:id)
+router.post('/claim', authenticateUser, claimFlipbook);
+
+router.get('/workspace/:id', (req, res, next) => {
   const authHeader = req.headers.authorization;
   if (authHeader && authHeader.startsWith('Bearer ')) {
     authenticateUser(req as any, res, next);
   } else {
     next();
   }
-}, getFlipbookQRCode);
-router.put('/:id', authenticateUser, updateFlipbook);
-router.delete('/:id', authenticateUser, deleteFlipbook);
+}, getWorkspaceFlipbook);
 
-// Public Reader Routes (Optional auth check, lets us see if the visitor is the owner)
 router.get('/slug/:slug', (req, res, next) => {
-  // Silent auth check
   const authHeader = req.headers.authorization;
   if (authHeader && authHeader.startsWith('Bearer ')) {
     authenticateUser(req as any, res, next);
@@ -72,5 +69,23 @@ router.get('/slug/:slug', (req, res, next) => {
 }, getPublicFlipbookBySlug);
 
 router.post('/slug/:slug/unlock', unlockPasswordProtectedFlipbook);
+
+// 2. Base & Generic Dynamic Workspace Routes (Registered AFTER static prefixes)
+router.post('/', optionalAuthenticateUser, uploadFields, uploadFlipbook);
+router.get('/', authenticateUser, getMyFlipbooks);
+
+router.get('/:id', authenticateUser, getFlipbookById);
+router.get('/:id/qr', (req, res, next) => {
+  const authHeader = req.headers.authorization;
+  if (authHeader && authHeader.startsWith('Bearer ')) {
+    authenticateUser(req as any, res, next);
+  } else {
+    next();
+  }
+}, getFlipbookQRCode);
+
+// PUT and DELETE use optionalAuthenticateUser to let controllers check user JWT OR guest session cookie
+router.put('/:id', optionalAuthenticateUser, updateFlipbook);
+router.delete('/:id', optionalAuthenticateUser, deleteFlipbook);
 
 export default router;

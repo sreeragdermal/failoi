@@ -9,6 +9,7 @@ import flipbookRoutes from './routes/flipbookRoutes.js';
 import analyticsRoutes from './routes/analyticsRoutes.js';
 import adminRoutes from './routes/adminRoutes.js';
 import { startWorker } from './services/pdfWorker.js';
+import { startCleanupWorker } from './services/cleanupWorker.js';
 import { initializeSettings } from './config/settings.js';
 import {
   securityHeaders,
@@ -110,8 +111,9 @@ app.listen(PORT, '0.0.0.0', () => {
 // Safely initialize settings and start worker asynchronously without blocking or terminating the HTTP server
 try {
   startWorker();
+  startCleanupWorker();
 } catch (workerErr) {
-  console.error('[Startup] PDF background worker failed to start:', workerErr);
+  console.error('[Startup] Background workers failed to start:', workerErr);
 }
 
 initializeSettings().catch((settingsErr) => {

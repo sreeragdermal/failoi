@@ -25,11 +25,19 @@ export const Login: React.FC = () => {
 
   const { user } = useAuth();
 
-  // Redirect to dashboard immediately if already authenticated
+  // Redirect to dashboard or custom destination immediately if already authenticated
   useEffect(() => {
     if (user) {
-      console.log('[Auth] User is authenticated. Navigating to dashboard.');
-      navigate('/dashboard', { replace: true });
+      const returnTo = sessionStorage.getItem('failoi_auth_return_to');
+      if (returnTo && returnTo.startsWith('/') && !returnTo.startsWith('//') && !returnTo.includes('http://') && !returnTo.includes('https://')) {
+        console.log('[Auth] Safe return path detected. Navigating to:', returnTo);
+        sessionStorage.removeItem('failoi_auth_return_to');
+        navigate(returnTo, { replace: true });
+      } else {
+        console.log('[Auth] Navigating to default dashboard.');
+        sessionStorage.removeItem('failoi_auth_return_to');
+        navigate('/dashboard', { replace: true });
+      }
     }
   }, [user, navigate]);
 

@@ -1,11 +1,25 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../hooks/useAuth.js';
 import { Lock, Mail, User, ArrowRight, Eye, EyeOff } from 'lucide-react';
 
 export const Register: React.FC = () => {
-  const { register } = useAuth();
+  const { register, user } = useAuth();
   const navigate = useNavigate();
+
+  // Redirect to dashboard or custom destination immediately if already authenticated
+  useEffect(() => {
+    if (user) {
+      const returnTo = sessionStorage.getItem('failoi_auth_return_to');
+      if (returnTo && returnTo.startsWith('/') && !returnTo.startsWith('//') && !returnTo.includes('http://') && !returnTo.includes('https://')) {
+        sessionStorage.removeItem('failoi_auth_return_to');
+        navigate(returnTo, { replace: true });
+      } else {
+        sessionStorage.removeItem('failoi_auth_return_to');
+        navigate('/dashboard', { replace: true });
+      }
+    }
+  }, [user, navigate]);
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -44,7 +58,14 @@ export const Register: React.FC = () => {
 
     try {
       await register(email, password, name);
-      navigate('/dashboard', { replace: true });
+      const returnTo = sessionStorage.getItem('failoi_auth_return_to');
+      if (returnTo && returnTo.startsWith('/') && !returnTo.startsWith('//') && !returnTo.includes('http://') && !returnTo.includes('https://')) {
+        sessionStorage.removeItem('failoi_auth_return_to');
+        navigate(returnTo, { replace: true });
+      } else {
+        sessionStorage.removeItem('failoi_auth_return_to');
+        navigate('/dashboard', { replace: true });
+      }
     } catch (err: any) {
       setError(err.message || 'Registration failed. Please try again.');
     } finally {

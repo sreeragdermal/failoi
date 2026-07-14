@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
-import { X, Copy, Check, Download, Send, MessageCircle, Mail, Settings2 } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
+import { X, Copy, Check, Download, ExternalLink, MessageCircle, Sparkles, Clock, Loader2 } from 'lucide-react';
 import { getAccessToken, BASE_URL } from '../services/api.js';
 
 interface ShareCenterModalProps {
@@ -9,41 +10,74 @@ interface ShareCenterModalProps {
     id: string;
     title: string;
     slug: string;
+    temporary?: boolean;
+    expiresAt?: string | null;
   } | null;
 }
 
+type TabType = 'link' | 'embed' | 'qr' | 'social';
+
 export const ShareCenterModal: React.FC<ShareCenterModalProps> = ({ isOpen, onClose, flipbook }) => {
+  const navigate = useNavigate();
+  const [activeTab, setActiveTab] = useState<TabType>('link');
   const [copiedLink, setCopiedLink] = useState(false);
   const [copiedEmbed, setCopiedEmbed] = useState(false);
   const [qrBlobUrl, setQrBlobUrl] = useState<string | null>(null);
 
-  // Embed Customizer Settings
-  const [width, setWidth] = useState('100%');
+  // Embed Settings
+  const [isResponsive, setIsResponsive] = useState(true);
+  const [customWidth, setCustomWidth] = useState('800');
   const [height, setHeight] = useState('600');
   const [theme, setTheme] = useState<'dark' | 'light'>('dark');
   const [showToolbar, setShowToolbar] = useState(true);
   const [allowDownload, setAllowDownload] = useState(true);
   const [allowPrint, setAllowPrint] = useState(true);
-  const [autoFlip, setAutoFlip] = useState(false);
-  const [showPageNumbers, setShowPageNumbers] = useState(true);
+  const autoFlip = false;
+
+  // Expiry countdown text
+  const [timeLeft, setTimeLeft] = useState('');
 
   const frontendUrl = window.location.origin;
   const publicUrl = flipbook ? `${frontendUrl}/f/${flipbook.slug}` : '';
-  
-  // Build dynamic Embed URL with query parameters
+
+  // Calculate Embed URL
   const embedParams = new URLSearchParams({
     theme,
     toolbar: showToolbar.toString(),
     download: allowDownload.toString(),
     print: allowPrint.toString(),
-    autoflip: autoFlip.toString(),
-    pagenumbers: showPageNumbers.toString()
+    autoflip: autoFlip.toString()
   }).toString();
-  
-  const embedUrl = flipbook ? `${frontendUrl}/embed/${flipbook.slug}?${embedParams}` : '';
-  const iframeCode = `<iframe src="${embedUrl}" width="${width}" height="${height}" allowfullscreen style="border: none; border-radius: 8px;"></iframe>`;
 
-  // Fetch QR Code as blob with authentication headers to handle private books securely
+  const embedUrl = flipbook ? `${frontendUrl}/embed/${flipbook.slug}?${embedParams}` : '';
+  const resolvedWidth = isResponsive ? '100%' : `${customWidth}px`;
+  const iframeCode = `<iframe src="${embedUrl}" width="${resolvedWidth}" height="${height}px" allowfullscreen style="border: none; border-radius: 8px;"></iframe>`;
+
+  // Countdown timer for temporary links
+  useEffect(() => {
+    if (!flipbook?.expiresAt) return;
+
+    const calculateTimeLeft = () => {
+      const difference = new Date(flipbook.expiresAt!).getTime() - new Date().getTime();
+      if (difference <= 0) {
+        setTimeLeft('Expired');
+        return;
+      }
+      const hours = Math.floor(difference / (1000 * 60 * 60));
+      const minutes = Math.floor((difference / 1000 / 60) % 60);
+      if (hours < 1) {
+        setTimeLeft(`${minutes}m`);
+      } else {
+        setTimeLeft(`${hours}h ${minutes}m`);
+      }
+    };
+
+    calculateTimeLeft();
+    const interval = setInterval(calculateTimeLeft, 60000);
+    return () => clearInterval(interval);
+  }, [flipbook?.expiresAt, isOpen]);
+
+  // Fetch QR Code Blob
   useEffect(() => {
     if (!isOpen || !flipbook) {
       setQrBlobUrl(null);
@@ -95,235 +129,293 @@ export const ShareCenterModal: React.FC<ShareCenterModalProps> = ({ isOpen, onCl
     setTimeout(() => setCopiedEmbed(false), 2000);
   };
 
-  // Social Share URLs
+  const handleDownloadQR = () => {
+    if (!qrBlobUrl) return;
+    const a = document.createElement('a');
+    a.href = qrBlobUrl;
+    a.download = `failoi-qr-${flipbook.slug}.png`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+  };
+
+  const handleClaimRedirect = () => {
+    sessionStorage.setItem('failoi_pending_claim', flipbook.id);
+    sessionStorage.setItem('failoi_auth_return_to', `/workspace/${flipbook.id}`);
+    onClose();
+    navigate('/login');
+  };
+
+  // Social share URLs
   const socialShares = {
+    whatsapp: `https://api.whatsapp.com/send?text=${encodeURIComponent(`Check out this flipbook: ${publicUrl}`)}`,
     facebook: `https://www.facebook.com/sharer/sharer.php?u=${encodeURIComponent(publicUrl)}`,
     linkedin: `https://www.linkedin.com/sharing/share-offsite/?url=${encodeURIComponent(publicUrl)}`,
-    whatsapp: `https://api.whatsapp.com/send?text=${encodeURIComponent(flipbook.title + ' - ' + publicUrl)}`,
-    telegram: `https://t.me/share/url?url=${encodeURIComponent(publicUrl)}&text=${encodeURIComponent(flipbook.title)}`,
-    email: `mailto:?subject=${encodeURIComponent(flipbook.title)}&body=${encodeURIComponent('Check out this flipbook: ' + publicUrl)}`
+    twitter: `https://twitter.com/intent/tweet?url=${encodeURIComponent(publicUrl)}&text=${encodeURIComponent(`Check out this flipbook: ${flipbook.title}`)}`
   };
 
   return (
-    <div style={styles.backdrop}>
-      <div className="glass-card animate-fade-in" style={styles.modal}>
-        {/* Header */}
-        <div style={styles.header}>
-          <div>
-            <h3 style={styles.title}>Share Center</h3>
-            <p style={styles.subtitle}>{flipbook.title}</p>
-          </div>
+    <div style={styles.modalOverlay}>
+      <div style={styles.modalCard} className="glass-card">
+        {/* Modal Header */}
+        <div style={styles.modalHeader}>
+          <h2 style={styles.modalTitle}>Share Flipbook</h2>
           <button onClick={onClose} style={styles.closeBtn}>
             <X size={20} />
           </button>
         </div>
 
-        {/* Modal Content Grid */}
-        <div style={styles.grid}>
-          {/* Left Column: Link, Socials, QR Code */}
-          <div style={styles.leftColumn}>
-            {/* Public Link */}
-            <div style={styles.section}>
-              <h4 style={styles.sectionTitle}>Public URL</h4>
-              <div style={styles.copyWrapper}>
+        {/* Tab Navigation */}
+        <div style={styles.tabBar}>
+          {(['link', 'embed', 'qr', 'social'] as TabType[]).map((tab) => (
+            <button
+              key={tab}
+              onClick={() => setActiveTab(tab)}
+              style={{
+                ...styles.tabButton,
+                color: activeTab === tab ? '#ffffff' : 'var(--text-secondary)',
+                borderBottomColor: activeTab === tab ? 'var(--primary)' : 'transparent'
+              }}
+            >
+              {tab.toUpperCase()}
+            </button>
+          ))}
+        </div>
+
+        {/* Tab Content Panels */}
+        <div style={styles.tabContent}>
+
+          {/* LINK TAB */}
+          {activeTab === 'link' && (
+            <div style={styles.pane}>
+              <h3 style={styles.paneHeading}>Share link</h3>
+              <div style={styles.urlBar}>
                 <input
                   type="text"
                   readOnly
-                  className="glass-input"
                   value={publicUrl}
-                  style={styles.copyInput}
+                  style={styles.urlInput}
                 />
-                <button
-                  onClick={handleCopyLink}
-                  className="glass-btn glass-btn-primary"
-                  style={styles.copyBtn}
-                >
-                  {copiedLink ? <Check size={18} /> : <Copy size={18} />}
-                  <span>{copiedLink ? 'Copied' : 'Copy'}</span>
+                <button onClick={handleCopyLink} className="glass-btn glass-btn-primary" style={styles.copyBtn}>
+                  {copiedLink ? <Check size={16} /> : <Copy size={16} />}
                 </button>
               </div>
-            </div>
 
-            {/* Social Share Grid */}
-            <div style={styles.section}>
-              <h4 style={styles.sectionTitle}>Share to Socials</h4>
-              <div style={styles.socialRow}>
-                <a href={socialShares.facebook} target="_blank" rel="noopener noreferrer" style={{ ...styles.socialBtn, backgroundColor: '#1877f2' }}>
-                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                    <path d="M18 2h-3a5 5 0 0 0-5 5v3H7v4h3v8h4v-8h3l1-4h-4V7a1 1 0 0 1 1-1h3z"/>
-                  </svg>
-                </a>
-                <a href={socialShares.linkedin} target="_blank" rel="noopener noreferrer" style={{ ...styles.socialBtn, backgroundColor: '#0a66c2' }}>
-                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                    <path d="M16 8a6 6 0 0 1 6 6v7h-4v-7a2 2 0 0 0-2-2 2 2 0 0 0-2 2v7h-4v-7a6 6 0 0 1 6-6z"/>
-                    <rect width="4" height="12" x="2" y="9"/>
-                    <circle cx="4" cy="4" r="2"/>
-                  </svg>
-                </a>
-                <a href={socialShares.whatsapp} target="_blank" rel="noopener noreferrer" style={{ ...styles.socialBtn, backgroundColor: '#25d366' }}>
-                  <MessageCircle size={18} />
-                </a>
-                <a href={socialShares.telegram} target="_blank" rel="noopener noreferrer" style={{ ...styles.socialBtn, backgroundColor: '#0088cc' }}>
-                  <Send size={18} />
-                </a>
-                <a href={socialShares.email} style={{ ...styles.socialBtn, backgroundColor: '#ea4335' }}>
-                  <Mail size={18} />
+              <div style={{ marginTop: '16px' }}>
+                <a href={publicUrl} target="_blank" rel="noreferrer" style={styles.openLink}>
+                  Open flipbook
+                  <ExternalLink size={14} style={{ marginLeft: '6px' }} />
                 </a>
               </div>
-            </div>
 
-            {/* QR Code */}
-            <div style={styles.section}>
-              <h4 style={styles.sectionTitle}>QR Code</h4>
-              <div style={styles.qrCard} className="glass-card">
-                {qrBlobUrl ? (
-                  <div style={styles.qrContent}>
-                    <img src={qrBlobUrl} alt="Flipbook QR Code" style={styles.qrImage} />
-                    <a
-                      href={qrBlobUrl}
-                      download={`${flipbook.slug}-qr.png`}
-                      className="glass-btn glass-btn-secondary"
-                      style={styles.qrDownloadBtn}
-                    >
-                      <Download size={16} />
-                      Download PNG
-                    </a>
-                  </div>
-                ) : (
-                  <div style={styles.qrPlaceholder}>
-                    <div style={styles.spinner}></div>
-                  </div>
-                )}
-              </div>
+              {flipbook.temporary && (
+                <div style={styles.warningBox} className="glass-card">
+                  <Clock size={16} style={{ color: '#f59e0b', marginRight: '8px' }} />
+                  <span style={{ fontSize: '0.8rem', color: '#f59e0b', flex: 1 }}>
+                    This temporary link expires in {timeLeft}.
+                  </span>
+                  <button onClick={handleClaimRedirect} style={styles.claimLink}>
+                    <Sparkles size={12} style={{ marginRight: '4px' }} />
+                    Sign in to keep it
+                  </button>
+                </div>
+              )}
             </div>
-          </div>
+          )}
 
-          {/* Right Column: Embed customizer */}
-          <div style={styles.rightColumn} className="glass-card">
-            <div style={styles.embedHeader}>
-              <Settings2 size={18} style={{ color: 'var(--primary-light)' }} />
-              <h4 style={{ margin: 0 }}>Embed Customizer</h4>
-            </div>
-
-            {/* Config controls */}
-            <div style={styles.configControls}>
-              <div style={styles.controlRow}>
-                <div style={styles.controlItem}>
-                  <label style={styles.controlLabel}>Width</label>
-                  <input
-                    type="text"
-                    className="glass-input"
-                    value={width}
-                    onChange={(e) => setWidth(e.target.value)}
-                    style={styles.inlineInput}
+          {/* EMBED TAB */}
+          {activeTab === 'embed' && (
+            <div style={styles.embedGrid}>
+              {/* Left Column: Live Embed Preview */}
+              <div style={styles.embedPreviewColumn}>
+                <h4 style={styles.columnLabel}>Live Preview</h4>
+                <div style={styles.iframePreviewContainer}>
+                  <iframe
+                    src={embedUrl}
+                    title="Live Embed Preview"
+                    style={{
+                      width: '100%',
+                      height: '100%',
+                      border: 'none',
+                      borderRadius: '6px',
+                      backgroundColor: theme === 'light' ? '#f1f5f9' : '#030509'
+                    }}
                   />
                 </div>
-                <div style={styles.controlItem}>
-                  <label style={styles.controlLabel}>Height (px)</label>
+              </div>
+
+              {/* Right Column: Settings */}
+              <div style={styles.embedSettingsColumn}>
+                <h4 style={styles.columnLabel}>Embed Settings</h4>
+
+                <div style={styles.settingGroup}>
+                  <label style={styles.switchLabel}>
+                    <input
+                      type="checkbox"
+                      checked={isResponsive}
+                      onChange={(e) => setIsResponsive(e.target.checked)}
+                      style={{ marginRight: '8px' }}
+                    />
+                    Responsive Width (100%)
+                  </label>
+                </div>
+
+                {!isResponsive && (
+                  <div style={styles.settingGroup}>
+                    <label style={styles.inputLabel}>Custom Width (px)</label>
+                    <input
+                      type="number"
+                      className="glass-input"
+                      value={customWidth}
+                      onChange={(e) => setCustomWidth(e.target.value)}
+                      style={styles.settingInput}
+                    />
+                  </div>
+                )}
+
+                <div style={styles.settingGroup}>
+                  <label style={styles.inputLabel}>Height (px)</label>
                   <input
-                    type="text"
+                    type="number"
                     className="glass-input"
                     value={height}
                     onChange={(e) => setHeight(e.target.value)}
-                    style={styles.inlineInput}
+                    style={styles.settingInput}
                   />
                 </div>
-              </div>
 
-              <div style={styles.controlItem}>
-                <label style={styles.controlLabel}>Theme</label>
-                <div style={styles.themeSelector}>
-                  <button
-                    onClick={() => setTheme('dark')}
-                    style={{
-                      ...styles.themeBtn,
-                      backgroundColor: theme === 'dark' ? 'var(--primary)' : 'rgba(255,255,255,0.05)',
-                      color: '#ffffff'
-                    }}
+                <div style={styles.settingGroup}>
+                  <label style={styles.inputLabel}>Theme</label>
+                  <select
+                    className="glass-input"
+                    value={theme}
+                    onChange={(e) => setTheme(e.target.value as 'dark' | 'light')}
+                    style={styles.settingSelect}
                   >
-                    Dark Theme
-                  </button>
-                  <button
-                    onClick={() => setTheme('light')}
-                    style={{
-                      ...styles.themeBtn,
-                      backgroundColor: theme === 'light' ? 'var(--primary)' : 'rgba(255,255,255,0.05)',
-                      color: '#ffffff'
-                    }}
-                  >
-                    Light Theme
-                  </button>
+                    <option value="dark">Dark Theme</option>
+                    <option value="light">Light Theme</option>
+                  </select>
                 </div>
-              </div>
 
-              <div style={styles.checkboxGrid}>
-                <label style={styles.embedCheckboxLabel}>
-                  <input
-                    type="checkbox"
-                    checked={showToolbar}
-                    onChange={(e) => setShowToolbar(e.target.checked)}
-                    style={styles.checkbox}
-                  />
-                  <span>Show Toolbar</span>
-                </label>
-                <label style={styles.embedCheckboxLabel}>
-                  <input
-                    type="checkbox"
-                    checked={allowDownload}
-                    onChange={(e) => setAllowDownload(e.target.checked)}
-                    style={styles.checkbox}
-                  />
-                  <span>Allow PDF Download</span>
-                </label>
-                <label style={styles.embedCheckboxLabel}>
-                  <input
-                    type="checkbox"
-                    checked={allowPrint}
-                    onChange={(e) => setAllowPrint(e.target.checked)}
-                    style={styles.checkbox}
-                  />
-                  <span>Allow Print</span>
-                </label>
-                <label style={styles.embedCheckboxLabel}>
-                  <input
-                    type="checkbox"
-                    checked={autoFlip}
-                    onChange={(e) => setAutoFlip(e.target.checked)}
-                    style={styles.checkbox}
-                  />
-                  <span>Auto Flip Pages</span>
-                </label>
-                <label style={styles.embedCheckboxLabel}>
-                  <input
-                    type="checkbox"
-                    checked={showPageNumbers}
-                    onChange={(e) => setShowPageNumbers(e.target.checked)}
-                    style={styles.checkbox}
-                  />
-                  <span>Show Page Numbers</span>
-                </label>
+                <div style={styles.checkboxGroup}>
+                  <label style={styles.switchLabel}>
+                    <input
+                      type="checkbox"
+                      checked={showToolbar}
+                      onChange={(e) => setShowToolbar(e.target.checked)}
+                      style={{ marginRight: '8px' }}
+                    />
+                    Show Toolbar
+                  </label>
+
+                  <label style={styles.switchLabel}>
+                    <input
+                      type="checkbox"
+                      checked={allowDownload}
+                      onChange={(e) => setAllowDownload(e.target.checked)}
+                      style={{ marginRight: '8px' }}
+                    />
+                    Allow Downloads
+                  </label>
+
+                  <label style={styles.switchLabel}>
+                    <input
+                      type="checkbox"
+                      checked={allowPrint}
+                      onChange={(e) => setAllowPrint(e.target.checked)}
+                      style={{ marginRight: '8px' }}
+                    />
+                    Allow Printing
+                  </label>
+                </div>
+
+                <button
+                  onClick={handleCopyEmbed}
+                  className="glass-btn glass-btn-primary"
+                  style={{ width: '100%', marginTop: '16px', padding: '10px' }}
+                >
+                  {copiedEmbed ? (
+                    <>
+                      <Check size={14} style={{ marginRight: '6px' }} />
+                      Copied!
+                    </>
+                  ) : (
+                    <>
+                      <Copy size={14} style={{ marginRight: '6px' }} />
+                      Copy Embed Code
+                    </>
+                  )}
+                </button>
               </div>
             </div>
+          )}
 
-            {/* Generated Iframe Code */}
-            <div style={styles.iframeSection}>
-              <label style={styles.controlLabel}>Iframe Embed Code</label>
-              <textarea
-                readOnly
-                className="glass-input"
-                value={iframeCode}
-                style={styles.iframeTextarea}
-              />
+          {/* QR CODE TAB */}
+          {activeTab === 'qr' && (
+            <div style={styles.paneCenter}>
+              <h3 style={styles.paneHeading}>Scan to open this flipbook</h3>
+
+              <div style={styles.qrWrapper}>
+                {qrBlobUrl ? (
+                  <img src={qrBlobUrl} alt="Flipbook QR Code" style={styles.qrImage} />
+                ) : (
+                  <div style={styles.qrPlaceholder}>
+                    <Loader2 size={24} className="animate-spin" style={{ color: 'var(--primary)' }} />
+                  </div>
+                )}
+              </div>
+
               <button
-                onClick={handleCopyEmbed}
+                onClick={handleDownloadQR}
                 className="glass-btn glass-btn-primary"
-                style={styles.embedCopyBtn}
+                style={styles.qrBtn}
+                disabled={!qrBlobUrl}
               >
-                {copiedEmbed ? <Check size={16} /> : <Copy size={16} />}
-                <span>{copiedEmbed ? 'Copied Embed Code' : 'Copy Embed Code'}</span>
+                <Download size={16} style={{ marginRight: '8px' }} />
+                Download PNG
               </button>
+
+              {flipbook.temporary && (
+                <div style={{ ...styles.warningBox, width: '100%', maxWidth: '360px', marginTop: '24px' }} className="glass-card">
+                  <span style={{ fontSize: '0.8rem', color: '#f59e0b', flex: 1 }}>
+                    This QR code will stop working when the temporary flipbook expires.
+                  </span>
+                  <button onClick={handleClaimRedirect} style={styles.claimLink}>
+                    Keep online
+                  </button>
+                </div>
+              )}
             </div>
-          </div>
+          )}
+
+          {/* SOCIAL TAB */}
+          {activeTab === 'social' && (
+            <div style={styles.pane}>
+              <h3 style={styles.paneHeading}>Share to social media</h3>
+
+              <div style={styles.socialGrid}>
+                <a href={socialShares.whatsapp} target="_blank" rel="noreferrer" style={styles.socialButton} className="glass-card">
+                  <MessageCircle size={20} style={{ color: '#25D366' }} />
+                  <span>WhatsApp</span>
+                </a>
+
+                <a href={socialShares.facebook} target="_blank" rel="noreferrer" style={styles.socialButton} className="glass-card">
+                  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#1877F2" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M18 2h-3a5 5 0 0 0-5 5v3H7v4h3v8h4v-8h3l1-4h-4V7a1 1 0 0 1 1-1h3z"></path></svg>
+                  <span>Facebook</span>
+                </a>
+
+                <a href={socialShares.linkedin} target="_blank" rel="noreferrer" style={styles.socialButton} className="glass-card">
+                  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#0A66C2" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M16 8a6 6 0 0 1 6 6v7h-4v-7a2 2 0 0 0-2-2 2 2 0 0 0-2 2v7h-4v-7a6 6 0 0 1 6-6z"></path><rect x="2" y="9" width="4" height="12"></rect><circle cx="4" cy="4" r="2"></circle></svg>
+                  <span>LinkedIn</span>
+                </a>
+
+                <a href={socialShares.twitter} target="_blank" rel="noreferrer" style={styles.socialButton} className="glass-card">
+                  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#1DA1F2" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M23 3a10.9 10.9 0 0 1-3.14 1.53 4.48 4.48 0 0 0-7.86 3v1A10.66 10.66 0 0 1 3 4s-4 9 5 13a11.64 11.64 0 0 1-7 2c9 5 20 0 20-11.5a4.5 4.5 0 0 0-.08-.83A7.72 7.72 0 0 0 23 3z"></path></svg>
+                  <span>X (Twitter)</span>
+                </a>
+              </div>
+            </div>
+          )}
         </div>
       </div>
     </div>
@@ -331,231 +423,243 @@ export const ShareCenterModal: React.FC<ShareCenterModalProps> = ({ isOpen, onCl
 };
 
 const styles: Record<string, React.CSSProperties> = {
-  backdrop: {
+  modalOverlay: {
     position: 'fixed',
     top: 0,
     left: 0,
     right: 0,
     bottom: 0,
-    backgroundColor: 'rgba(3, 5, 10, 0.8)',
+    backgroundColor: 'rgba(0,0,0,0.7)',
     backdropFilter: 'blur(8px)',
-    zIndex: 1000,
     display: 'flex',
     justifyContent: 'center',
     alignItems: 'center',
+    zIndex: 9999,
     padding: '24px',
   },
-  modal: {
+  modalCard: {
+    maxWidth: '680px',
     width: '100%',
-    maxWidth: '920px',
-    padding: '32px',
-    backgroundColor: 'rgba(10, 15, 30, 0.95)',
+    backgroundColor: '#0a0f1e',
+    border: '1px solid rgba(255,255,255,0.06)',
+    borderRadius: '12px',
+    padding: '24px',
+    display: 'flex',
+    flexDirection: 'column',
     maxHeight: '90vh',
     overflowY: 'auto',
   },
-  header: {
+  modalHeader: {
     display: 'flex',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: '28px',
-    borderBottom: '1px solid var(--border-color)',
-    paddingBottom: '16px',
+    marginBottom: '20px',
   },
-  title: {
-    fontSize: '1.4rem',
+  modalTitle: {
+    fontSize: '1.2rem',
+    fontWeight: '700',
     color: '#ffffff',
-  },
-  subtitle: {
-    color: 'var(--text-secondary)',
-    fontSize: '0.85rem',
-    marginTop: '2px',
+    margin: 0,
   },
   closeBtn: {
     background: 'none',
     border: 'none',
     color: 'var(--text-secondary)',
     cursor: 'pointer',
-    padding: '6px',
-    borderRadius: '50%',
+  },
+  tabBar: {
     display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'center',
-    transition: 'background var(--transition-fast)',
+    borderBottom: '1px solid rgba(255,255,255,0.06)',
+    marginBottom: '20px',
   },
-  grid: {
-    display: 'grid',
-    gridTemplateColumns: '1fr 1fr',
-    gap: '32px',
-  },
-  leftColumn: {
-    display: 'flex',
-    flexDirection: 'column',
-    gap: '24px',
-  },
-  section: {
-    display: 'flex',
-    flexDirection: 'column',
-    gap: '10px',
-  },
-  sectionTitle: {
-    fontSize: '0.9rem',
-    color: 'var(--text-secondary)',
+  tabButton: {
+    background: 'none',
+    border: 'none',
+    padding: '10px 16px',
+    fontSize: '0.8rem',
     fontWeight: '600',
+    cursor: 'pointer',
+    borderBottom: '2px solid transparent',
+    transition: 'all 0.2s',
+  },
+  tabContent: {
+    flex: 1,
+  },
+  pane: {
+    display: 'flex',
+    flexDirection: 'column',
+  },
+  paneCenter: {
+    display: 'flex',
+    flexDirection: 'column',
+    alignItems: 'center',
+    textAlign: 'center',
+  },
+  paneHeading: {
+    fontSize: '0.9rem',
+    fontWeight: '600',
+    color: 'var(--text-secondary)',
     textTransform: 'uppercase',
     letterSpacing: '0.05em',
+    marginBottom: '12px',
   },
-  copyWrapper: {
-    display: 'flex',
-    gap: '10px',
-  },
-  copyInput: {
-    flex: 1,
-    fontSize: '0.9rem',
-    color: 'var(--text-secondary)',
-  },
-  copyBtn: {
-    flexShrink: 0,
-    padding: '0 16px',
-  },
-  socialRow: {
+  urlBar: {
     display: 'flex',
     gap: '12px',
   },
-  socialBtn: {
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'center',
-    width: '40px',
-    height: '40px',
-    borderRadius: '50%',
+  urlInput: {
+    flex: 1,
+    padding: '10px 14px',
+    fontSize: '0.9rem',
+    backgroundColor: 'rgba(255,255,255,0.02)',
+    border: '1px solid rgba(255,255,255,0.06)',
+    borderRadius: '6px',
     color: '#ffffff',
-    transition: 'transform var(--transition-fast), opacity var(--transition-fast)',
+    outline: 'none',
   },
-  qrCard: {
-    padding: '20px',
-    background: 'rgba(255,255,255,0.02)',
-    display: 'flex',
-    justifyContent: 'center',
+  copyBtn: {
+    padding: '10px 16px',
+  },
+  openLink: {
+    display: 'inline-flex',
     alignItems: 'center',
-  },
-  qrContent: {
-    display: 'flex',
-    flexDirection: 'column',
-    alignItems: 'center',
-    gap: '16px',
-  },
-  qrImage: {
-    width: '180px',
-    height: '180px',
-    borderRadius: '8px',
-    border: '4px solid #ffffff',
-  },
-  qrDownloadBtn: {
-    padding: '8px 16px',
+    color: 'var(--primary-light)',
     fontSize: '0.85rem',
+    textDecoration: 'none',
+    fontWeight: '500',
   },
-  qrPlaceholder: {
-    width: '180px',
-    height: '180px',
+  warningBox: {
+    marginTop: '24px',
+    padding: '14px 18px',
+    backgroundColor: 'rgba(245, 158, 11, 0.03)',
+    border: '1px solid rgba(245, 158, 11, 0.1)',
+    borderRadius: '6px',
     display: 'flex',
     alignItems: 'center',
-    justifyContent: 'center',
+    gap: '12px',
   },
-  spinner: {
-    width: '24px',
-    height: '24px',
-    border: '2px solid rgba(255,255,255,0.05)',
-    borderTop: '2px solid var(--primary)',
-    borderRadius: '50%',
-    animation: 'spin 1s linear infinite',
-  },
-  rightColumn: {
-    padding: '24px',
-    background: 'rgba(255,255,255,0.01)',
-    display: 'flex',
-    flexDirection: 'column',
-    gap: '20px',
-  },
-  embedHeader: {
-    display: 'flex',
+  claimLink: {
+    background: 'none',
+    border: 'none',
+    color: 'var(--primary-light)',
+    fontSize: '0.8rem',
+    fontWeight: '600',
+    cursor: 'pointer',
+    display: 'inline-flex',
     alignItems: 'center',
-    gap: '10px',
-    borderBottom: '1px solid var(--border-color)',
-    paddingBottom: '12px',
+    textDecoration: 'underline',
   },
-  configControls: {
-    display: 'flex',
-    flexDirection: 'column',
-    gap: '16px',
-  },
-  controlRow: {
+  embedGrid: {
     display: 'grid',
-    gridTemplateColumns: '1fr 1fr',
-    gap: '16px',
+    gridTemplateColumns: '1.2fr 1fr',
+    gap: '24px',
   },
-  controlItem: {
+  embedPreviewColumn: {
+    display: 'flex',
+    flexDirection: 'column',
+    gap: '12px',
+  },
+  columnLabel: {
+    fontSize: '0.8rem',
+    fontWeight: '600',
+    color: 'var(--text-secondary)',
+    textTransform: 'uppercase',
+    letterSpacing: '0.05em',
+    margin: 0,
+  },
+  iframePreviewContainer: {
+    flex: 1,
+    height: '240px',
+    border: '1px solid rgba(255,255,255,0.06)',
+    borderRadius: '6px',
+    overflow: 'hidden',
+  },
+  embedSettingsColumn: {
+    display: 'flex',
+    flexDirection: 'column',
+    gap: '12px',
+    maxHeight: '350px',
+    overflowY: 'auto',
+    paddingRight: '8px',
+  },
+  settingGroup: {
     display: 'flex',
     flexDirection: 'column',
     gap: '6px',
   },
-  controlLabel: {
-    fontSize: '0.8rem',
+  inputLabel: {
+    fontSize: '0.75rem',
     color: 'var(--text-secondary)',
-    fontWeight: '500',
   },
-  inlineInput: {
+  settingInput: {
     padding: '8px 12px',
-  },
-  themeSelector: {
-    display: 'flex',
-    gap: '10px',
-  },
-  themeBtn: {
-    flex: 1,
-    padding: '10px',
-    border: '1px solid var(--border-color)',
-    borderRadius: 'var(--radius-sm)',
-    cursor: 'pointer',
     fontSize: '0.85rem',
-    fontWeight: '500',
-    transition: 'all var(--transition-fast)',
+    backgroundColor: 'rgba(255,255,255,0.02)',
   },
-  checkboxGrid: {
-    display: 'grid',
-    gridTemplateColumns: '1fr',
-    gap: '12px',
-    marginTop: '8px',
-  },
-  embedCheckboxLabel: {
-    display: 'flex',
-    alignItems: 'center',
-    gap: '10px',
+  settingSelect: {
+    padding: '8px 12px',
     fontSize: '0.85rem',
-    color: 'var(--text-secondary)',
+    backgroundColor: 'rgba(255,255,255,0.02)',
     cursor: 'pointer',
   },
-  checkbox: {
-    accentColor: 'var(--primary)',
-    width: '16px',
-    height: '16px',
-  },
-  iframeSection: {
+  checkboxGroup: {
     display: 'flex',
     flexDirection: 'column',
     gap: '8px',
-    marginTop: 'auto',
+    marginTop: '8px',
   },
-  iframeTextarea: {
-    height: '80px',
+  switchLabel: {
     fontSize: '0.8rem',
-    color: 'var(--text-secondary)',
-    fontFamily: 'monospace',
-    resize: 'none',
-    padding: '10px',
+    color: 'var(--text-primary)',
+    display: 'inline-flex',
+    alignItems: 'center',
+    cursor: 'pointer',
   },
-  embedCopyBtn: {
+  qrWrapper: {
+    width: '160px',
+    height: '160px',
+    border: '1px solid rgba(255,255,255,0.06)',
+    borderRadius: '8px',
+    backgroundColor: '#ffffff',
+    display: 'flex',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginBottom: '16px',
+    overflow: 'hidden',
+  },
+  qrImage: {
     width: '100%',
-    padding: '10px',
+    height: '100%',
+  },
+  qrPlaceholder: {
+    width: '100%',
+    height: '100%',
+    display: 'flex',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  qrBtn: {
+    padding: '10px 20px',
+    fontSize: '0.85rem',
+  },
+  socialGrid: {
+    display: 'grid',
+    gridTemplateColumns: '1fr 1fr',
+    gap: '16px',
+  },
+  socialButton: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: '12px',
+    padding: '16px',
+    backgroundColor: 'rgba(255,255,255,0.01)',
+    border: '1px solid rgba(255,255,255,0.04)',
+    borderRadius: '8px',
+    textDecoration: 'none',
+    color: '#ffffff',
     fontSize: '0.9rem',
+    fontWeight: '500',
+    transition: 'all 0.2s',
+    cursor: 'pointer',
   },
 };

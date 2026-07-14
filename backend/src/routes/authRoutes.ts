@@ -22,7 +22,7 @@ router.get('/google', googleLogin);
 router.get('/google/callback', googleCallback);
 
 // CSRF recovery endpoint
-router.get('/csrf', authenticateUser, getCsrfToken);
+router.get('/csrf', getCsrfToken);
 
 // Profile and password change routes
 router.put('/profile', authenticateUser, updateProfile);

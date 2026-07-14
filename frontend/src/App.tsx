@@ -15,6 +15,7 @@ import { PublicReader } from './pages/PublicReader.js';
 import { EmbedReader } from './pages/EmbedReader.js';
 import { Analytics } from './pages/Analytics.js';
 import { AdminDashboard } from './pages/AdminDashboard.js';
+import { Workspace } from './pages/Workspace.js';
 
 const AppContent: React.FC = () => {
   const { user, returnFromImpersonation } = useAuth();
@@ -134,6 +135,7 @@ const AppContent: React.FC = () => {
         />
 
         {/* Viewers (Unprotected) */}
+        <Route path="/workspace/:id" element={<Workspace />} />
         <Route path="/f/:slug" element={<PublicReader />} />
         <Route path="/embed/:slug" element={<EmbedReader />} />
 

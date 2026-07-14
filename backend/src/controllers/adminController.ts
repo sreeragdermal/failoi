@@ -75,8 +75,8 @@ export const getAdminStats = async (req: AuthRequest, res: Response) => {
     const formattedActivity = recentFlipbooks.map((f) => ({
       id: f.id,
       title: f.title,
-      creatorEmail: f.user.email,
-      creatorName: f.user.name || 'User',
+      creatorEmail: f.user?.email || 'guest@failoi.com',
+      creatorName: f.user?.name || 'Guest',
       fileSize: f.fileSize,
       status: f.status,
       createdAt: f.createdAt,
@@ -243,8 +243,8 @@ export const getGlobalFlipbooks = async (req: AuthRequest, res: Response) => {
 
     const formatted = flipbooks.map((f) => ({
       ...f,
-      creatorEmail: f.user.email,
-      creatorName: f.user.name || 'User',
+      creatorEmail: f.user?.email || 'guest@failoi.com',
+      creatorName: f.user?.name || 'Guest',
       pdfUrl: storageService.getFileUrl(f.originalPdfPath),
       thumbnailUrl: f.thumbnailPath ? storageService.getFileUrl(f.thumbnailPath) : null,
     }));
@@ -1011,7 +1011,7 @@ export const getStorageMetrics = async (req: AuthRequest, res: Response) => {
       id: f.id,
       title: f.title,
       fileSize: f.fileSize,
-      creatorEmail: f.user.email
+      creatorEmail: f.user?.email || 'guest@failoi.com'
     }));
 
     return res.status(200).json({
