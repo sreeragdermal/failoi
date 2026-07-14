@@ -107,8 +107,13 @@ export const apiRequest = async (path: string, options: RequestInit = {}): Promi
 
   let response = await fetch(url, fetchOptions);
 
-  // If unauthorized, attempt to refresh token
-  if ((response.status === 401 || response.status === 403) && !path.includes('/auth/login') && !path.includes('/auth/register')) {
+  // If unauthorized, attempt to refresh token (bypass for public slug reader requests)
+  if (
+    (response.status === 401 || response.status === 403) &&
+    !path.includes('/auth/login') &&
+    !path.includes('/auth/register') &&
+    !path.includes('/flipbooks/slug/')
+  ) {
     try {
       const newToken = await handleTokenRefresh();
       

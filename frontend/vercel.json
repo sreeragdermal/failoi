@@ -1,6 +1,7 @@
 {
   "rewrites": [
     { "source": "/api/:path*", "destination": "https://failoi.onrender.com/api/:path*" },
+    { "source": "/uploads/:path*", "destination": "https://failoi.onrender.com/uploads/:path*" },
     { "source": "/(.*)", "destination": "/index.html" }
   ]
 }

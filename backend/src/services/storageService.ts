@@ -74,10 +74,9 @@ export class LocalStorageProvider implements StorageProvider {
    * Generates a fully-qualified public URL to access the asset.
    */
   getFileUrl(relativeFilePath: string): string {
-    const baseUrl = process.env.BACKEND_URL || 'http://localhost:5000';
     // Replace backslashes on Windows systems with forward slashes for URLs
     const cleanPath = relativeFilePath.replace(/\\/g, '/');
-    return `${baseUrl}/uploads/${cleanPath}`;
+    return `/uploads/${cleanPath}`;
   }
 }
 

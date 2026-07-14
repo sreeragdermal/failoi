@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import multer from 'multer';
-import { authenticateUser, optionalAuthenticateUser } from '../middlewares/auth.js';
+import jwt from 'jsonwebtoken';
+import { authenticateUser, optionalAuthenticateUser, AuthRequest } from '../middlewares/auth.js';
 import {
   uploadFlipbook,
   getMyFlipbooks,
@@ -59,13 +60,20 @@ router.get('/workspace/:id', (req, res, next) => {
   }
 }, getWorkspaceFlipbook);
 
-router.get('/slug/:slug', (req, res, next) => {
+router.get('/slug/:slug', (req: AuthRequest, res, next) => {
   const authHeader = req.headers.authorization;
   if (authHeader && authHeader.startsWith('Bearer ')) {
-    authenticateUser(req as any, res, next);
-  } else {
-    next();
+    const token = authHeader.split(' ')[1];
+    try {
+      const JWT_SECRET = process.env.JWT_SECRET || 'super-secret-jwt-key';
+      const decoded = jwt.verify(token, JWT_SECRET) as any;
+      req.user = decoded;
+    } catch (err) {
+      // Stale or invalid token: ignore and treat as guest
+      req.user = undefined;
+    }
   }
+  next();
 }, getPublicFlipbookBySlug);
 
 router.post('/slug/:slug/unlock', unlockPasswordProtectedFlipbook);
