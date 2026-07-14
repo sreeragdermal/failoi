@@ -5,7 +5,7 @@ import { fileURLToPath } from 'url';
 // Resolve uploads folder location
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
-const DEFAULT_UPLOAD_DIR = path.resolve(__dirname, '../../../uploads');
+const DEFAULT_UPLOAD_DIR = path.resolve(process.cwd(), 'uploads');
 
 export interface StorageProvider {
   saveFile(buffer: Buffer, folder: string, filename: string): Promise<string>;

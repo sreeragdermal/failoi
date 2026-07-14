@@ -8,7 +8,7 @@ import storageService from './storageService.js';
 // Resolve uploads folder location
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
-const DEFAULT_UPLOAD_DIR = path.resolve(__dirname, '../../../uploads');
+const DEFAULT_UPLOAD_DIR = path.resolve(process.cwd(), 'uploads');
 
 export let queuePaused = false;
 export const pauseQueue = () => {

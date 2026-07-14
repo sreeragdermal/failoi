@@ -2,7 +2,7 @@ import React, { useEffect, useState, useRef, useCallback } from 'react';
 import { 
   ChevronLeft, ChevronRight, ZoomIn, ZoomOut, Maximize2, Minimize2, 
   ArrowLeft, Search, Printer, Download, Share2, BookOpen, Bookmark, 
-  Grid, Volume2, VolumeX, Loader2
+  Grid, Volume2, VolumeX, Loader2, AlertTriangle
 } from 'lucide-react';
 // @ts-ignore
 import HTMLFlipBook from 'react-pageflip';
@@ -172,33 +172,39 @@ export const FlipbookViewer: React.FC<FlipbookViewerProps> = ({
     });
   }, []);
 
+  const [error, setError] = useState<string | null>(null);
+
   // Fetch document & extract pages details
-  useEffect(() => {
-    let active = true;
-    const fetchDoc = async () => {
-      try {
-        const pdfjsLib = await loadPdfJs();
-        const loadedPdf = await pdfjsLib.getDocument(pdfUrl).promise;
-        if (!active) return;
-        
-        setPdf(loadedPdf);
-        setNumPages(loadedPdf.numPages);
-        setRenderedPages(new Array(loadedPdf.numPages).fill(null));
+  const fetchDoc = useCallback(async () => {
+    setError(null);
+    setPdf(null);
+    console.log('[Viewer] Loading PDF from:', pdfUrl);
+    try {
+      const pdfjsLib = await loadPdfJs();
+      const loadedPdf = await pdfjsLib.getDocument(pdfUrl).promise;
 
-        // Read first page viewport to determine perfect aspect ratio
-        const firstPage = await loadedPdf.getPage(1);
-        const view = firstPage.getViewport({ scale: 1.0 });
-        setAspectRatio(view.width / view.height);
+      setPdf(loadedPdf);
+      setNumPages(loadedPdf.numPages);
+      setRenderedPages(new Array(loadedPdf.numPages).fill(null));
+      console.log('[Viewer] PDF loaded, pages count:', loadedPdf.numPages);
 
-        // Run full text search compilation background index
-        extractAllPageTexts(loadedPdf);
-      } catch (err) {
-        console.error('Error loading PDF:', err);
-      }
-    };
-    fetchDoc();
-    return () => { active = false; };
+      // Read first page viewport to determine perfect aspect ratio
+      const firstPage = await loadedPdf.getPage(1);
+      const view = firstPage.getViewport({ scale: 1.0 });
+      setAspectRatio(view.width / view.height);
+
+      // Run full text search compilation background index
+      extractAllPageTexts(loadedPdf);
+      console.log('[Viewer] loading state cleared');
+    } catch (err: any) {
+      console.error('[Viewer] Error loading PDF:', err);
+      setError(err.message || 'Failed to load PDF document.');
+    }
   }, [pdfUrl, loadPdfJs]);
+
+  useEffect(() => {
+    fetchDoc();
+  }, [fetchDoc]);
 
   // Extract texts from all PDF pages for in-book search utility
   const extractAllPageTexts = async (pdfDoc: any) => {
@@ -548,7 +554,20 @@ export const FlipbookViewer: React.FC<FlipbookViewerProps> = ({
           transition: 'transform 0.25s cubic-bezier(0.4, 0, 0.2, 1)'
         }}
       >
-        {pdf ? (
+        {error ? (
+          <div style={styles.errorFileBox}>
+            <AlertTriangle size={48} style={{ color: 'var(--error)' }} />
+            <h3 style={{ marginTop: '16px' }}>Failed to load Flipbook</h3>
+            <p style={{ color: 'var(--text-secondary)', marginTop: '8px', fontSize: '0.95rem' }}>{error}</p>
+            <button
+              onClick={fetchDoc}
+              className="glass-btn glass-btn-primary"
+              style={{ marginTop: '20px' }}
+            >
+              Retry
+            </button>
+          </div>
+        ) : pdf ? (
           <div 
             style={{
               ...styles.bookPlacementShadow,
@@ -983,6 +1002,14 @@ const styles: Record<string, React.CSSProperties> = {
     alignItems: 'center',
     justifyContent: 'center',
     padding: '48px',
+  },
+  errorFileBox: {
+    display: 'flex',
+    flexDirection: 'column',
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: '48px',
+    textAlign: 'center' as const,
   },
   thumbnailsDrawer: {
     position: 'absolute',
