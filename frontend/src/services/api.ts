@@ -4,9 +4,45 @@ export const BASE_URL = '/api/v1';
 let accessToken: string | null = null;
 let refreshPromise: Promise<string> | null = null;
 let inMemoryCsrfToken: string | null = null;
+let csrfPromise: Promise<string> | null = null;
 
 export const setCsrfToken = (token: string | null) => {
   inMemoryCsrfToken = token;
+};
+
+export const ensureCsrfToken = async (): Promise<string> => {
+  if (inMemoryCsrfToken) {
+    return inMemoryCsrfToken;
+  }
+  if (csrfPromise) {
+    return csrfPromise;
+  }
+
+  csrfPromise = (async () => {
+    try {
+      console.log('[CSRF Client] Fetching CSRF token from backend...');
+      const csrfRes = await fetch(`${BASE_URL}/auth/csrf`, {
+        method: 'GET',
+        headers: accessToken ? { 'Authorization': `Bearer ${accessToken}` } : {},
+        credentials: 'include',
+      });
+      if (csrfRes.ok) {
+        const csrfData = await csrfRes.json();
+        if (csrfData && csrfData.csrfToken) {
+          inMemoryCsrfToken = csrfData.csrfToken;
+          return csrfData.csrfToken;
+        }
+      }
+      throw new Error('Failed to fetch CSRF token');
+    } catch (err) {
+      console.error('[CSRF Client] Fetch request threw error:', err);
+      throw err;
+    } finally {
+      csrfPromise = null;
+    }
+  })();
+
+  return csrfPromise;
 };
 
 // Helper to read cookies client-side
@@ -66,17 +102,7 @@ export const apiRequest = async (path: string, options: RequestInit = {}): Promi
   if (isMutation && !inMemoryCsrfToken && !path.includes('/auth/csrf') && !path.includes('/auth/login') && !path.includes('/auth/register') && !path.includes('/auth/refresh')) {
     try {
       console.log('[CSRF Client] Pre-fetching CSRF token from backend for request:', path);
-      const csrfRes = await fetch(`${BASE_URL}/auth/csrf`, {
-        method: 'GET',
-        headers: accessToken ? { 'Authorization': `Bearer ${accessToken}` } : {},
-        credentials: 'include',
-      });
-      if (csrfRes.ok) {
-        const csrfData = await csrfRes.json();
-        if (csrfData && csrfData.csrfToken) {
-          setCsrfToken(csrfData.csrfToken);
-        }
-      }
+      await ensureCsrfToken();
     } catch (csrfErr) {
       console.error('[CSRF Client] Pre-fetch request threw error:', csrfErr);
     }
@@ -165,75 +191,95 @@ export const uploadFileWithProgress = async (
   onProgress: (percent: number) => void
 ): Promise<any> => {
   // Pre-fetch CSRF token if not in memory
-  if (!inMemoryCsrfToken) {
-    try {
-      console.log('[CSRF Client] Pre-fetching CSRF token from backend for file upload:', path);
-      const csrfRes = await fetch(`${BASE_URL}/auth/csrf`, {
-        method: 'GET',
-        headers: accessToken ? { 'Authorization': `Bearer ${accessToken}` } : {},
-        credentials: 'include',
-      });
-      if (csrfRes.ok) {
-        const csrfData = await csrfRes.json();
-        if (csrfData && csrfData.csrfToken) {
-          setCsrfToken(csrfData.csrfToken);
-        }
-      }
-    } catch (csrfErr) {
-      console.error('[CSRF Client] Pre-fetch request for upload threw error:', csrfErr);
-    }
+  let csrfToken: string = '';
+  try {
+    csrfToken = await ensureCsrfToken();
+  } catch (err) {
+    // Fallback to cookie check if the API call failed
+    csrfToken = getCookie('csrfToken') || '';
   }
 
-  return new Promise((resolve, reject) => {
-    const xhr = new XMLHttpRequest();
-    const url = `${BASE_URL}${path}`;
+  const executeUpload = (token: string, isRetry = false): Promise<any> => {
+    return new Promise((resolve, reject) => {
+      const xhr = new XMLHttpRequest();
+      const url = `${BASE_URL}${path}`;
 
-    xhr.open('POST', url, true);
-    xhr.withCredentials = true; // Send secure cookies cross-origin
+      xhr.open('POST', url, true);
+      xhr.withCredentials = true; // Send secure cookies cross-origin
 
-    const token = getAccessToken();
-    if (token) {
-      xhr.setRequestHeader('Authorization', `Bearer ${token}`);
-    }
-
-    // Set CSRF token on XMLHttpRequest
-    const csrfToken = inMemoryCsrfToken || getCookie('csrfToken');
-    if (csrfToken) {
-      xhr.setRequestHeader('X-CSRF-Token', csrfToken);
-    }
-
-    xhr.upload.onprogress = (event) => {
-      if (event.lengthComputable) {
-        const percent = Math.round((event.loaded / event.total) * 100);
-        onProgress(percent);
+      const authTok = getAccessToken();
+      if (authTok) {
+        xhr.setRequestHeader('Authorization', `Bearer ${authTok}`);
       }
-    };
 
-    xhr.onload = () => {
-      if (xhr.status >= 200 && xhr.status < 300) {
-        try {
-          const resJson = JSON.parse(xhr.responseText);
-          resolve(resJson);
-        } catch {
-          resolve(xhr.responseText);
-        }
-      } else {
-        let errorMessage = 'Upload failed';
-        try {
-          const errorObj = JSON.parse(xhr.responseText);
-          errorMessage = errorObj.error || errorMessage;
-        } catch {
-          errorMessage = xhr.responseText || errorMessage;
-        }
-        reject(new Error(errorMessage));
+      if (token) {
+        xhr.setRequestHeader('X-CSRF-Token', token);
       }
-    };
 
-    xhr.onerror = () => {
-      reject(new Error('Network error during upload'));
-    };
+      xhr.upload.onprogress = (event) => {
+        if (event.lengthComputable) {
+          const percent = Math.round((event.loaded / event.total) * 100);
+          onProgress(percent);
+        }
+      };
 
-    xhr.send(formData);
-  });
+      xhr.onload = async () => {
+        if (xhr.status >= 200 && xhr.status < 300) {
+          try {
+            resolve(JSON.parse(xhr.responseText));
+          } catch {
+            resolve(xhr.responseText);
+          }
+        } else if (xhr.status === 403 && !isRetry) {
+          // Check if it's a CSRF error
+          let isCsrfError = false;
+          try {
+            const errorObj = JSON.parse(xhr.responseText);
+            if (errorObj.error && errorObj.error.includes('CSRF')) {
+              isCsrfError = true;
+            }
+          } catch {
+            if (xhr.responseText && xhr.responseText.includes('CSRF')) {
+              isCsrfError = true;
+            }
+          }
+
+          if (isCsrfError) {
+            console.warn('[CSRF Client] CSRF validation failed on initial upload attempt. Retrying with fresh token...');
+            // 1. Clear memory token
+            setCsrfToken(null);
+            // 2. Fetch fresh token
+            try {
+              const freshToken = await ensureCsrfToken();
+              // 3. Retry upload exactly once
+              const retryRes = await executeUpload(freshToken, true);
+              resolve(retryRes);
+            } catch (retryErr) {
+              reject(retryErr);
+            }
+          } else {
+            reject(new Error(xhr.responseText || 'Upload failed'));
+          }
+        } else {
+          let errorMessage = 'Upload failed';
+          try {
+            const errorObj = JSON.parse(xhr.responseText);
+            errorMessage = errorObj.error || errorMessage;
+          } catch {
+            errorMessage = xhr.responseText || errorMessage;
+          }
+          reject(new Error(errorMessage));
+        }
+      };
+
+      xhr.onerror = () => {
+        reject(new Error('Network error during upload'));
+      };
+
+      xhr.send(formData);
+    });
+  };
+
+  return executeUpload(csrfToken);
 };
 
